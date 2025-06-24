@@ -12,6 +12,7 @@ use {
     },
     crossbeam_channel::SendError,
     log::*,
+    rand::Rng,
     solana_measure::measure::Measure,
     solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph},
     solana_sdk::{
@@ -26,7 +27,8 @@ use {
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, RwLock,
         },
-        time::Instant,
+        thread,
+        time::{Duration, Instant},
     },
     thiserror::Error,
 };
@@ -552,6 +554,7 @@ impl BankForks {
         accounts_background_request_sender: &AbsRequestSender,
         highest_super_majority_root: Option<Slot>,
     ) -> Result<Vec<BankWithScheduler>, SetRootError> {
+        thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
         let program_cache_prune_start = Instant::now();
         let set_root_start = Instant::now();
         let (removed_banks, set_root_metrics) = self.do_set_root_return_metrics(

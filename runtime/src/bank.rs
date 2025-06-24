@@ -63,6 +63,7 @@ use {
     ahash::AHashSet,
     dashmap::{DashMap, DashSet},
     log::*,
+    rand::Rng,
     rayon::{
         iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
         ThreadPoolBuilder,
@@ -188,7 +189,7 @@ use {
             },
             Arc, LockResult, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak,
         },
-        thread::Builder,
+        thread::{self, Builder},
         time::{Duration, Instant},
     },
 };
@@ -2001,7 +2002,9 @@ impl Bank {
     }
 
     pub fn is_frozen(&self) -> bool {
-        *self.hash.read().unwrap() != Hash::default()
+        let r_guard = self.hash.read().unwrap();
+        thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
+        *r_guard != Hash::default()
     }
 
     pub fn freeze_started(&self) -> bool {
@@ -2584,6 +2587,7 @@ impl Bank {
         // record and commit are finished, those transactions will be
         // committed before this write lock can be obtained here.
         let mut hash = self.hash.write().unwrap();
+        thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
         if *hash == Hash::default() {
             // finish up any deferred changes to account state
             self.collect_rent_eagerly();

@@ -42,6 +42,7 @@ use {
         window_service::DuplicateSlotReceiver,
     },
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
+    rand::Rng,
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
         ThreadPool,
@@ -322,7 +323,7 @@ pub struct ReplayReceivers {
 
 /// Timing information for the ReplayStage main processing loop
 #[derive(Default)]
-struct ReplayLoopTiming {
+pub(crate) struct ReplayLoopTiming {
     last_submit: u64,
     loop_count: u64,
     collect_frozen_banks_elapsed_us: u64,
@@ -4454,7 +4455,7 @@ impl ReplayStage {
         Ok(())
     }
 
-    fn generate_new_bank_forks(
+    pub(crate) fn generate_new_bank_forks(
         blockstore: &Blockstore,
         bank_forks: &RwLock<BankForks>,
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
@@ -4536,6 +4537,7 @@ impl ReplayStage {
         let mut generate_new_bank_forks_write_lock =
             Measure::start("generate_new_bank_forks_write_lock");
         let mut forks = bank_forks.write().unwrap();
+        thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
         let root = forks.root();
         for (slot, bank) in new_banks {
             if slot < root {

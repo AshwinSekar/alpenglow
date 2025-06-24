@@ -26,6 +26,7 @@ use {
     },
     alpenglow_vote::vote::Vote,
     crossbeam_channel::{RecvTimeoutError, Sender},
+    rand::Rng,
     solana_feature_set::FeatureSet,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
@@ -472,6 +473,7 @@ impl VotingLoop {
         let new_root = (old_root + 1..=slot).rev().find(|slot| {
             cert_pool.is_finalized(*slot) && ctx.bank_forks.read().unwrap().is_frozen(*slot)
         })?;
+        thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
         trace!("{}: Attempting to set new root {new_root}", ctx.my_pubkey);
         vctx.vote_history.set_root(new_root);
         cert_pool.handle_new_root(ctx.bank_forks.read().unwrap().get(new_root).unwrap());
@@ -1081,5 +1083,190 @@ impl VotingLoop {
 
     pub fn join(self) -> thread::Result<()> {
         self.t_voting_loop.join().map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        crate::{
+            consensus::progress_map::ForkProgress,
+            replay_stage::{tests::setup_forks_from_tree, ReplayLoopTiming},
+            vote_simulator::VoteSimulator,
+        },
+        crossbeam_channel::{unbounded, Receiver},
+        rand::Rng,
+        solana_ledger::blockstore::make_slot_entries,
+        solana_rpc::optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
+        solana_runtime::{
+            commitment::BlockCommitmentCache, vote_sender_types::AlpenglowVoteSender,
+        },
+        std::sync::atomic::AtomicU64,
+        trees::{tr, Tree},
+    };
+
+    fn setup_voting_loop_components(
+        tree: Tree<Slot>,
+        num_nodes: usize,
+    ) -> (
+        CertificatePool<LegacyVoteCertificate>,
+        SharedContext,
+        VotingContext,
+        ProgressMap,
+        AlpenglowVoteSender,
+        Receiver<VoteOp>,
+    ) {
+        let (vote_simulator, blockstore) = setup_forks_from_tree(tree, num_nodes, None);
+        let VoteSimulator {
+            ref validator_keypairs,
+            bank_forks,
+            progress,
+            ..
+        } = vote_simulator;
+        let me = validator_keypairs.iter().next().unwrap().1;
+        let my_pubkey = me.node_keypair.pubkey();
+
+        let root_bank = bank_forks.read().unwrap().root_bank();
+        let cert_pool = CertificatePool::new_from_root_bank(my_pubkey, root_bank.as_ref(), None);
+        let blockstore = Arc::new(blockstore);
+
+        // Leader schedule cache
+        let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(&root_bank));
+
+        // RpcSubscriptions
+        let optimistically_confirmed_bank =
+            OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
+        let exit = Arc::new(AtomicBool::new(false));
+        let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
+        let max_complete_rewards_slot = Arc::new(AtomicU64::default());
+        let rpc_subscriptions = Arc::new(RpcSubscriptions::new_for_tests(
+            exit,
+            max_complete_transaction_status_slot,
+            max_complete_rewards_slot,
+            bank_forks.clone(),
+            Arc::new(RwLock::new(BlockCommitmentCache::default())),
+            optimistically_confirmed_bank,
+        ));
+
+        let (vote_sender, vote_receiver) = unbounded();
+        let shared_context = SharedContext {
+            blockstore,
+            leader_schedule_cache,
+            bank_forks,
+            rpc_subscriptions,
+            vote_receiver,
+            progress: ProgressMap::default(),
+            my_pubkey,
+        };
+
+        let (voting_sender, voting_receiver) = unbounded();
+        let (commitment_sender, _) = unbounded();
+        let authorized_voter_keypairs = vec![Arc::new(me.vote_keypair.insecure_clone())];
+        let voting_context = VotingContext {
+            vote_history: VoteHistory::new(my_pubkey, root_bank.slot()),
+            vote_account_pubkey: me.vote_keypair.pubkey(),
+            identity_keypair: Arc::new(me.node_keypair.insecure_clone()),
+            authorized_voter_keypairs: Arc::new(RwLock::new(authorized_voter_keypairs)),
+            has_new_vote_been_rooted: true,
+            voting_sender,
+            commitment_sender,
+            wait_to_vote_slot: None,
+            voted_signatures: vec![],
+        };
+
+        (
+            cert_pool,
+            shared_context,
+            voting_context,
+            progress,
+            vote_sender,
+            voting_receiver,
+        )
+    }
+
+    #[test]
+    fn test_bank_forks_deadlock() {
+        solana_logger::setup_with_default("solana_core=trace");
+        let (mut cert_pool, mut shared_context, mut voting_context, mut progress, _, _) =
+            setup_voting_loop_components(tr(0) / tr(1), 1);
+
+        let blockstore = shared_context.blockstore.clone();
+        let bank_forks = shared_context.bank_forks.clone();
+        let leader_schedule_cache = shared_context.leader_schedule_cache.clone();
+        let rpc_subscriptions = shared_context.rpc_subscriptions.clone();
+
+        let generate_new_bank_forks_t = thread::spawn(move || {
+            for slot in 2..=10000 {
+                let (shreds, _) = make_slot_entries(
+                    slot,     // slot
+                    slot - 1, // parent_slot
+                    8,        // num_entries
+                    true,     // merkle_variant
+                );
+                blockstore.insert_shreds(shreds, None, false).unwrap();
+                assert!(bank_forks.read().unwrap().get(slot).is_none());
+
+                println!("Generate new bank forks {slot}");
+                ReplayStage::generate_new_bank_forks(
+                    &blockstore,
+                    &bank_forks,
+                    &leader_schedule_cache,
+                    &rpc_subscriptions,
+                    &None,
+                    &mut progress,
+                    &mut ReplayLoopTiming::default(),
+                );
+
+                {
+                    let bank = bank_forks.read().unwrap().get(slot).unwrap();
+                    progress.insert(
+                        slot,
+                        ForkProgress::new_from_bank(
+                            &bank,
+                            bank.collector_id(),
+                            &voting_context.vote_account_pubkey,
+                            Some(slot - 1),
+                            0,
+                            0,
+                        ),
+                    );
+                }
+                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
+                {
+                    let bank_forks_r = bank_forks.read().unwrap();
+                    bank_forks_r.get(slot).unwrap().freeze();
+                    progress.handle_new_root(&bank_forks_r);
+                }
+            }
+        });
+
+        let abs_sender = AbsRequestSender::default();
+        let (drop_bank_sender, _) = unbounded();
+
+        loop {
+            let current_root = shared_context.bank_forks.read().unwrap().root();
+            let new_root = current_root + 4;
+            if new_root > 10000 {
+                break;
+            }
+            for slot in current_root..=new_root {
+                cert_pool.insert_dummy_certificate(CertificateId::Finalize(slot));
+            }
+            println!("maybe_set_root: {new_root}");
+            VotingLoop::maybe_set_root(
+                new_root,
+                &mut cert_pool,
+                &mut PendingBlocks::default(),
+                &abs_sender,
+                &None,
+                &drop_bank_sender,
+                &mut shared_context,
+                &mut voting_context,
+            );
+            thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..=50)));
+        }
+
+        generate_new_bank_forks_t.join().unwrap();
     }
 }

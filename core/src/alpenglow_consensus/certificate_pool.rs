@@ -402,6 +402,31 @@ impl<VC: VoteCertificate> CertificatePool<VC> {
             .unwrap_or(0)
     }
 
+    #[cfg(test)]
+    pub fn insert_dummy_certificate(&mut self, cert_id: CertificateId) {
+        self.completed_certificates
+            .insert(cert_id, VC::new(cert_id));
+        match cert_id {
+            CertificateId::Notarize(_, _, _) => (),
+            CertificateId::NotarizeFallback(slot, block_id, bank_hash) => {
+                self.parent_ready_tracker
+                    .add_new_notar_fallback((slot, block_id, bank_hash));
+                if self
+                    .highest_notarized_fallback
+                    .map_or(true, |(s, _, _)| s < slot)
+                {
+                    self.highest_notarized_fallback = Some((slot, block_id, bank_hash));
+                }
+            }
+            CertificateId::Skip(slot) => self.parent_ready_tracker.add_new_skip(slot),
+            CertificateId::Finalize(slot) | CertificateId::FinalizeFast(slot, _, _) => {
+                if self.highest_finalized_slot.map_or(true, |s| s < slot) {
+                    self.highest_finalized_slot = Some(slot);
+                }
+            }
+        }
+    }
+
     /// Checks if any block in the slot `s` is finalized
     pub fn is_finalized(&self, slot: Slot) -> bool {
         self.completed_certificates.keys().any(|cert_id| {
