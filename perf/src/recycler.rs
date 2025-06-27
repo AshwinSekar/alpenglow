@@ -137,7 +137,7 @@ impl<T: Default + Reset + Sized> Recycler<T> {
             }
         }
         let total = self.recycler.stats.total.fetch_add(1, Ordering::Relaxed);
-        trace!(
+        info!(
             "allocating new: total {} {:?} id: {} reuse: {} max_gc: {}",
             total,
             name,
@@ -187,7 +187,7 @@ impl<T: Default + Reset> RecyclerX<T> {
         let total = self.stats.total.load(Ordering::Relaxed);
         let reuse = self.stats.reuse.load(Ordering::Relaxed);
         let freed = self.stats.freed.load(Ordering::Relaxed);
-        datapoint_debug!(
+        datapoint_info!(
             "recycler",
             ("gc_len", len as i64, i64),
             ("total", total as i64, i64),
