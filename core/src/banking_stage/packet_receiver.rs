@@ -48,18 +48,19 @@ impl PacketReceiver {
                 // Consumes results if Ok, otherwise we keep the Err
                 .map(|receive_packet_results| {
                     if let Some(sender) = alpenglow_vote_sender {
+                        info!("AG vote sender channel len {}", sender.len());
                         self.send_alpenglow_votes_to_cert_pool(
                             &receive_packet_results,
                             sender,
                             slot_metrics_tracker,
                         );
                     }
-                    self.buffer_packets(
-                        receive_packet_results,
-                        vote_storage,
-                        banking_stage_stats,
-                        slot_metrics_tracker,
-                    );
+                    // self.buffer_packets(
+                    //     receive_packet_results,
+                    //     vote_storage,
+                    //     banking_stage_stats,
+                    //     slot_metrics_tracker,
+                    // );
                     recv_and_buffer_measure.stop();
 
                     // Only incremented if packets are received
