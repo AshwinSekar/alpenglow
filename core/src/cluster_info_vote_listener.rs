@@ -661,14 +661,14 @@ impl ClusterInfoVoteListener {
             match vote {
                 ParsedVoteTransaction::Alpenglow(vote) => {
                     if let Some(transaction) = transaction {
-                        Self::process_alpenglow_votes(
-                            vote,
-                            &vote_pubkey,
-                            transaction,
-                            verified_vote_sender,
-                            alpenglow_vote_sender,
-                            subscriptions,
-                        );
+                        // Self::process_alpenglow_votes(
+                        //     vote,
+                        //     &vote_pubkey,
+                        //     transaction,
+                        //     verified_vote_sender,
+                        //     alpenglow_vote_sender,
+                        //     subscriptions,
+                        // );
                     }
                 }
                 ParsedVoteTransaction::Tower(vote) => {
