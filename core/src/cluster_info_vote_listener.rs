@@ -643,7 +643,7 @@ impl ClusterInfoVoteListener {
         latest_vote_slot_per_validator: &mut HashMap<Pubkey, Slot>,
         bank_hash_cache: &mut BankHashCache,
         dumped_slot_subscription: &Mutex<bool>,
-        alpenglow_vote_sender: &AlpenglowVoteSender,
+        _alpenglow_vote_sender: &AlpenglowVoteSender,
     ) -> ThresholdConfirmedSlots {
         let mut diff: HashMap<Slot, HashMap<Pubkey, bool>> = HashMap::new();
         let mut new_optimistic_confirmed_slots = vec![];
@@ -660,16 +660,16 @@ impl ClusterInfoVoteListener {
             .chain(replayed_votes.into_iter().zip(repeat(/*is_gossip:*/ None)));
         for ((vote_pubkey, vote, _switch_proof, signature), transaction) in votes {
             match vote {
-                ParsedVoteTransaction::Alpenglow(vote) => {
-                    if let Some(transaction) = transaction {
-                        Self::process_alpenglow_votes(
-                            vote,
-                            &vote_pubkey,
-                            transaction,
-                            verified_vote_sender,
-                            alpenglow_vote_sender,
-                            subscriptions,
-                        );
+                ParsedVoteTransaction::Alpenglow(_vote) => {
+                    if let Some(_transaction) = transaction {
+                        // Self::process_alpenglow_votes(
+                        //     vote,
+                        //     &vote_pubkey,
+                        //     transaction,
+                        //     verified_vote_sender,
+                        //     alpenglow_vote_sender,
+                        //     subscriptions,
+                        // );
                     }
                 }
                 ParsedVoteTransaction::Tower(vote) => {
