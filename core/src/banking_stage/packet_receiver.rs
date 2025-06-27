@@ -32,13 +32,13 @@ impl PacketReceiver {
     pub fn receive_and_buffer_packets(
         &mut self,
         vote_storage: &mut VoteStorage,
-        banking_stage_stats: &mut BankingStageStats,
+        _banking_stage_stats: &mut BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
-        alpenglow_vote_sender: Option<&AlpenglowVoteSender>,
+        _alpenglow_vote_sender: Option<&AlpenglowVoteSender>,
     ) -> Result<(), RecvTimeoutError> {
         let (result, recv_time_us) = measure_us!({
             let recv_timeout = Self::get_receive_timeout(vote_storage);
-            let mut recv_and_buffer_measure = Measure::start("recv_and_buffer");
+            let recv_and_buffer_measure = Measure::start("recv_and_buffer");
             self.packet_deserializer
                 .receive_packets(recv_timeout, vote_storage.max_receive_size(), |packet| {
                     packet.check_insufficent_compute_unit_limit()?;
@@ -46,26 +46,26 @@ impl PacketReceiver {
                     Ok(packet)
                 })
                 // Consumes results if Ok, otherwise we keep the Err
-                .map(|receive_packet_results| {
-                    if let Some(sender) = alpenglow_vote_sender {
-                        self.send_alpenglow_votes_to_cert_pool(
-                            &receive_packet_results,
-                            sender,
-                            slot_metrics_tracker,
-                        );
-                    }
-                    self.buffer_packets(
-                        receive_packet_results,
-                        vote_storage,
-                        banking_stage_stats,
-                        slot_metrics_tracker,
-                    );
-                    recv_and_buffer_measure.stop();
+                .map(|_receive_packet_results| {
+                    // if let Some(sender) = alpenglow_vote_sender {
+                    //     self.send_alpenglow_votes_to_cert_pool(
+                    //         &receive_packet_results,
+                    //         sender,
+                    //         slot_metrics_tracker,
+                    //     );
+                    // }
+                    // self.buffer_packets(
+                    //     receive_packet_results,
+                    //     vote_storage,
+                    //     banking_stage_stats,
+                    //     slot_metrics_tracker,
+                    // );
+                    // recv_and_buffer_measure.stop();
 
-                    // Only incremented if packets are received
-                    banking_stage_stats
-                        .receive_and_buffer_packets_elapsed
-                        .fetch_add(recv_and_buffer_measure.as_us(), Ordering::Relaxed);
+                    // // Only incremented if packets are received
+                    // banking_stage_stats
+                    //     .receive_and_buffer_packets_elapsed
+                    //     .fetch_add(recv_and_buffer_measure.as_us(), Ordering::Relaxed);
                 })
         });
 
