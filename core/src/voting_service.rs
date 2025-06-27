@@ -289,14 +289,14 @@ impl VotingService {
                 measure.stop();
                 trace!("{measure}");
 
-                Self::broadcast_alpenglow_vote(
-                    slot,
-                    cluster_info,
-                    &tx,
-                    connection_cache,
-                    additional_listeners,
-                    staked_validators_cache,
-                );
+                // Self::broadcast_alpenglow_vote(
+                //     slot,
+                //     cluster_info,
+                //     &tx,
+                //     connection_cache,
+                //     additional_listeners,
+                //     staked_validators_cache,
+                // );
 
                 // TODO: Test that no important votes are overwritten
                 cluster_info.push_alpenglow_vote(tx);
