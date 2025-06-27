@@ -299,7 +299,7 @@ impl VotingService {
                 // );
 
                 // TODO: Test that no important votes are overwritten
-                cluster_info.push_alpenglow_vote(tx);
+                // cluster_info.push_alpenglow_vote(tx);
             }
             VoteOp::PushAlpenglowBLSMessage {
                 bls_message,
