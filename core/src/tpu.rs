@@ -247,7 +247,7 @@ impl Tpu {
         };
 
         let vote_sigverify_stage = {
-            let verifier = TransactionSigVerifier::new_reject_non_vote(
+            let verifier = TransactionSigVerifier::new_drop_everything(
                 tpu_vote_sender,
                 Some(forward_stage_sender),
             );

@@ -23,6 +23,7 @@ pub struct TransactionSigVerifier {
     recycler: Recycler<TxOffset>,
     recycler_out: Recycler<PinnedVec<u8>>,
     reject_non_vote: bool,
+    drop_everything: bool,
 }
 
 impl TransactionSigVerifier {
@@ -32,6 +33,15 @@ impl TransactionSigVerifier {
     ) -> Self {
         let mut new_self = Self::new(packet_sender, forward_stage_sender);
         new_self.reject_non_vote = true;
+        new_self
+    }
+
+    pub fn new_drop_everything(
+        packet_sender: BankingPacketSender,
+        forward_stage_sender: Option<Sender<(BankingPacketBatch, bool)>>,
+    ) -> Self {
+        let mut new_self = Self::new(packet_sender, forward_stage_sender);
+        new_self.drop_everything = true;
         new_self
     }
 
@@ -46,6 +56,7 @@ impl TransactionSigVerifier {
             recycler: Recycler::warmed(50, 4096),
             recycler_out: Recycler::warmed(50, 4096),
             reject_non_vote: false,
+            drop_everything: false,
         }
     }
 }
@@ -57,6 +68,10 @@ impl SigVerifier for TransactionSigVerifier {
         &mut self,
         packet_batches: Vec<PacketBatch>,
     ) -> Result<(), SigVerifyServiceError<Self::SendType>> {
+        if self.drop_everything {
+            return Ok(());
+        }
+
         let banking_packet_batch = BankingPacketBatch::new(packet_batches);
         if let Some(forward_stage_sender) = &self.forward_stage_sender {
             self.banking_stage_sender
