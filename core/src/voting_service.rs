@@ -191,6 +191,7 @@ impl VotingService {
             .get_staked_validators_by_slot_with_tpu_vote_ports(slot, cluster_info, Instant::now());
 
         if staked_validator_tpu_sockets.is_empty() {
+            error!("Staked validator_tpu_sockets is empty");
             let _ = send_vote_transaction(cluster_info, tx, None, &connection_cache);
         } else {
             let sockets = additional_listeners
