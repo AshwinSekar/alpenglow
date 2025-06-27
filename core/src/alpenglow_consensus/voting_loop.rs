@@ -1059,15 +1059,15 @@ impl VotingLoop {
         cert_pool: &mut CertificatePool<VC>,
         commitment_sender: &Sender<CommitmentAggregationData>,
     ) -> Result<(), AddVoteError> {
-        let Some(new_finalized_slot) = cert_pool.add_vote(vote, tx, vote_account_pubkey)? else {
-            return Ok(());
-        };
-        trace!("{my_pubkey}: new finalization certificate for {new_finalized_slot}");
-        Self::alpenglow_update_commitment_cache(
-            AlpenglowCommitmentType::Finalized,
-            new_finalized_slot,
-            commitment_sender,
-        );
+        // let Some(new_finalized_slot) = cert_pool.add_vote(vote, tx, vote_account_pubkey)? else {
+        //     return Ok(());
+        // };
+        // trace!("{my_pubkey}: new finalization certificate for {new_finalized_slot}");
+        // Self::alpenglow_update_commitment_cache(
+        //     AlpenglowCommitmentType::Finalized,
+        //     new_finalized_slot,
+        //     commitment_sender,
+        // );
         Ok(())
     }
 
