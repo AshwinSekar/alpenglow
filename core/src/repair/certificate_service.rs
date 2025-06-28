@@ -49,7 +49,7 @@ impl CertificateService {
             .name("solCertInsertBCast".to_string())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
-                    let certs = match Self::receive_new_certificates(&certificate_receiver) {
+                    let _certs = match Self::receive_new_certificates(&certificate_receiver) {
                         Ok(certs) => certs,
                         Err(e) if Self::should_exit_on_error(&e, &handle_error) => break,
                         Err(_e) => continue,
@@ -61,13 +61,13 @@ impl CertificateService {
                     // e,g, our previous highest cert was 5, we now see certs for 7 & 8, notify repair to get the cert for 6
 
                     // Insert into blockstore
-                    if let Err(e) = certs.into_iter().try_for_each(|(cert_id, cert)| {
-                        Self::insert_certificate(blockstore.as_ref(), cert_id, cert)
-                    }) {
-                        if Self::should_exit_on_error(&e, &handle_error) {
-                            break;
-                        }
-                    }
+                    // if let Err(e) = certs.into_iter().try_for_each(|(cert_id, cert)| {
+                    //     Self::insert_certificate(blockstore.as_ref(), cert_id, cert)
+                    // }) {
+                    //     if Self::should_exit_on_error(&e, &handle_error) {
+                    //         break;
+                    //     }
+                    // }
                 }
             })
             .unwrap()
