@@ -60,12 +60,19 @@ impl<VC: VoteCertificate> VotePool<VC> {
             bank_hash,
             block_id,
         };
+        info!("Adding vote {} {:?}", validator_key, vote_key);
         let prev_vote_keys = self.prev_votes.entry(*validator_key).or_default();
         if prev_vote_keys.contains(&vote_key) {
+            info!("Already saw vote");
             return false;
         }
         let inserted_first_time = prev_vote_keys.is_empty();
         if prev_vote_keys.len() >= self.max_entries_per_pubkey {
+            info!(
+                "Too many votes {} {}",
+                prev_vote_keys.len(),
+                self.max_entries_per_pubkey
+            );
             return false;
         }
         prev_vote_keys.push(vote_key.clone());
