@@ -187,12 +187,14 @@ impl<VC: VoteCertificate> CertificatePool<VC> {
         bank_hash: Option<Hash>,
         total_stake: Stake,
     ) -> Result<Option<Slot>, AddVoteError> {
+        info!("Updating certificate based on {:?}", vote);
         let slot = vote.slot();
         vote_to_certificate_ids(vote)
             .iter()
             .try_fold(None, |highest, &cert_id| {
                 // If the certificate is already complete, skip it
                 if self.completed_certificates.contains_key(&cert_id) {
+                    info!("Already completed {cert_id:?}");
                     return Ok(highest);
                 }
                 // Otherwise check whether the certificate is complete
@@ -208,6 +210,10 @@ impl<VC: VoteCertificate> CertificatePool<VC> {
                     })
                     .sum::<Stake>();
                 if accumulated_stake as f64 / (total_stake as f64) < limit {
+                    info!(
+                        "Checked {cert_id:?}, no threshold {} {limit}",
+                        accumulated_stake as f64 / (total_stake as f64)
+                    );
                     return Ok(highest);
                 }
                 let mut vote_certificate = VC::new(cert_id);
@@ -219,10 +225,15 @@ impl<VC: VoteCertificate> CertificatePool<VC> {
                         .add_to_certificate(bank_hash, block_id, &mut vote_certificate)
                         .map_err(AddVoteError::Certificate)?;
                 }
+                info!(
+                    "Inserting new certificate {cert_id:?} len {}",
+                    self.completed_certificates.len()
+                );
                 self.completed_certificates
                     .insert(cert_id, vote_certificate.clone());
                 if let Some(sender) = &self.certificate_sender {
                     if cert_id.is_critical() {
+                        info!("Sending cert {cert_id:?}");
                         if let Err(e) = sender.try_send((cert_id, vote_certificate)) {
                             error!("Unable to send certificate {cert_id:?}: {e:?}");
                             return Err(AddVoteError::CertificateSenderError);
