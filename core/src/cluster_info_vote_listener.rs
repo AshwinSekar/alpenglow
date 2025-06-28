@@ -455,6 +455,7 @@ impl ClusterInfoVoteListener {
         Ok(vec![])
     }
 
+    #[allow(dead_code)]
     fn process_alpenglow_votes(
         parsed_vote: AlpenglowVote,
         vote_pubkey: &Pubkey,

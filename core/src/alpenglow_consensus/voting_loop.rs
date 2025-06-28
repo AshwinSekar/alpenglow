@@ -124,6 +124,7 @@ struct SharedContext {
     my_pubkey: Pubkey,
 }
 
+#[derive(Debug)]
 pub(crate) enum GenerateVoteTxResult {
     // non voting validator, not eligible for refresh
     // until authorized keypair is overriden
@@ -246,6 +247,17 @@ impl VotingLoop {
             vote_receiver,
             my_pubkey,
         };
+
+        info!("Forcing big refresh");
+        for slot in 1..500 {
+            Self::send_vote(
+                Vote::new_skip_vote(slot),
+                false,
+                root_bank_cache.root_bank().as_ref(),
+                &mut cert_pool,
+                &mut voting_context,
+            );
+        }
 
         // TODO(ashwin): Start loop once migration is complete current_slot from vote history
         loop {
@@ -803,6 +815,7 @@ impl VotingLoop {
         cert_pool: &mut CertificatePool<LegacyVoteCertificate>,
         voting_context: &mut VotingContext,
     ) {
+        info!("{my_pubkey}: Attempting refresh at slot {slot}");
         let highest_finalization_slot = cert_pool
             .highest_finalized_slot()
             .max(root_bank_cache.root_bank().slot());
@@ -810,7 +823,7 @@ impl VotingLoop {
         // This includes the notarized fallback cert if it was a slow finalization
 
         // Refresh votes for all slots up to our current slot
-        for s in highest_finalization_slot..=slot {
+        for s in highest_finalization_slot..=600 {
             for vote in voting_context.vote_history.votes_cast(s) {
                 info!("{my_pubkey}: Refreshing vote {vote:?}");
                 Self::send_vote(
@@ -848,6 +861,7 @@ impl VotingLoop {
         // TODO(ashwin): add metrics struct here and throughout the whole file
         // replay_timing.generate_vote_us += generate_time.as_us();
         let GenerateVoteTxResult::Tx(vote_tx) = vote_tx_result else {
+            error!("Unable to generate vote {vote_tx_result:?}");
             return;
         };
 
