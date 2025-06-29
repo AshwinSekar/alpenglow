@@ -676,45 +676,45 @@ impl BankingStage {
     }
 
     fn process_loop(
-        packet_receiver: &mut PacketReceiver,
-        decision_maker: &mut DecisionMaker,
-        bank_forks: &RwLock<BankForks>,
-        consumer: &Consumer,
+        _packet_receiver: &mut PacketReceiver,
+        _decision_maker: &mut DecisionMaker,
+        _bank_forks: &RwLock<BankForks>,
+        _consumer: &Consumer,
         id: u32,
-        mut vote_storage: VoteStorage,
-        alpenglow_vote_sender: Option<AlpenglowVoteSender>,
+        _vote_storage: VoteStorage,
+        _alpenglow_vote_sender: Option<AlpenglowVoteSender>,
     ) {
         let mut banking_stage_stats = BankingStageStats::new(id);
 
-        let mut slot_metrics_tracker = LeaderSlotMetricsTracker::new(id);
-        let mut last_metrics_update = Instant::now();
+        // let mut slot_metrics_tracker = LeaderSlotMetricsTracker::new(id);
+        // let mut last_metrics_update = Instant::now();
 
         loop {
-            if !vote_storage.is_empty()
-                || last_metrics_update.elapsed() >= SLOT_BOUNDARY_CHECK_PERIOD
-            {
-                let (_, process_buffered_packets_us) = measure_us!(Self::process_buffered_packets(
-                    decision_maker,
-                    bank_forks,
-                    consumer,
-                    &mut vote_storage,
-                    &banking_stage_stats,
-                    &mut slot_metrics_tracker,
-                ));
-                slot_metrics_tracker
-                    .increment_process_buffered_packets_us(process_buffered_packets_us);
-                last_metrics_update = Instant::now();
-            }
+            // if !vote_storage.is_empty()
+            //     || last_metrics_update.elapsed() >= SLOT_BOUNDARY_CHECK_PERIOD
+            // {
+            //     let (_, process_buffered_packets_us) = measure_us!(Self::process_buffered_packets(
+            //         decision_maker,
+            //         bank_forks,
+            //         consumer,
+            //         &mut vote_storage,
+            //         &banking_stage_stats,
+            //         &mut slot_metrics_tracker,
+            //     ));
+            //     slot_metrics_tracker
+            //         .increment_process_buffered_packets_us(process_buffered_packets_us);
+            //     last_metrics_update = Instant::now();
+            // }
 
-            match packet_receiver.receive_and_buffer_packets(
-                &mut vote_storage,
-                &mut banking_stage_stats,
-                &mut slot_metrics_tracker,
-                alpenglow_vote_sender.as_ref(),
-            ) {
-                Ok(()) | Err(RecvTimeoutError::Timeout) => (),
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
+            // match packet_receiver.receive_and_buffer_packets(
+            //     &mut vote_storage,
+            //     &mut banking_stage_stats,
+            //     &mut slot_metrics_tracker,
+            //     alpenglow_vote_sender.as_ref(),
+            // ) {
+            //     Ok(()) | Err(RecvTimeoutError::Timeout) => (),
+            //     Err(RecvTimeoutError::Disconnected) => break,
+            // }
             banking_stage_stats.report(1000);
         }
     }
