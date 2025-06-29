@@ -192,7 +192,9 @@ impl VotingService {
 
         if staked_validator_tpu_sockets.is_empty() {
             error!("Staked validator_tpu_sockets is empty");
-            let _ = send_vote_transaction(cluster_info, tx, None, &connection_cache);
+            if let Err(e) = send_vote_transaction(cluster_info, tx, None, &connection_cache) {
+                error!("Error sending skip for {slot} to self: {e:?}");
+            }
         } else {
             let sockets = additional_listeners
                 .map(|v| v.as_slice())
@@ -201,12 +203,14 @@ impl VotingService {
                 .chain(staked_validator_tpu_sockets.iter());
 
             for tpu_vote_socket in sockets {
-                let _ = send_vote_transaction(
+                if let Err(e) = send_vote_transaction(
                     cluster_info,
                     tx,
                     Some(*tpu_vote_socket),
                     &connection_cache,
-                );
+                ) {
+                    error!("Error sending skip for {slot} to {tpu_vote_socket}: {e:?}");
+                }
             }
         }
     }
