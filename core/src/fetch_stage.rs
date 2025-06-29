@@ -222,6 +222,7 @@ impl FetchStage {
             Vec::default()
         };
 
+        let (vote_sender, _) = bounded(1);
         let tpu_vote_stats = Arc::new(StreamerReceiveStats::new("tpu_vote_receiver"));
         let tpu_vote_threads: Vec<_> = tpu_vote_sockets
             .into_iter()
