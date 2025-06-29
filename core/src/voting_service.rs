@@ -187,6 +187,7 @@ impl VotingService {
         additional_listeners: Option<&Vec<SocketAddr>>,
         staked_validators_cache: &mut StakedValidatorsCache,
     ) {
+        info!("Sending skip for {slot}");
         let (staked_validator_tpu_sockets, _) = staked_validators_cache
             .get_staked_validators_by_slot_with_tpu_vote_ports(slot, cluster_info, Instant::now());
 
@@ -213,6 +214,7 @@ impl VotingService {
                 }
             }
         }
+        info!("Sent skip for {slot}");
     }
 
     fn broadcast_alpenglow_message(
@@ -285,13 +287,13 @@ impl VotingService {
                 slot,
                 saved_vote_history,
             } => {
-                // let mut measure = Measure::start("alpenglow vote history save");
-                // if let Err(err) = vote_history_storage.store(&saved_vote_history) {
-                //     error!("Unable to save vote history to storage: {:?}", err);
-                //     std::process::exit(1);
-                // }
-                // measure.stop();
-                // trace!("{measure}");
+                let mut measure = Measure::start("alpenglow vote history save");
+                if let Err(err) = vote_history_storage.store(&saved_vote_history) {
+                    error!("Unable to save vote history to storage: {:?}", err);
+                    std::process::exit(1);
+                }
+                measure.stop();
+                trace!("{measure}");
 
                 Self::broadcast_alpenglow_vote(
                     slot,

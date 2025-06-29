@@ -154,8 +154,8 @@ impl VoteHistoryStorage for FileVoteHistoryStorage {
     fn store(&self, saved_vote_history: &SavedVoteHistoryVersions) -> Result<()> {
         let pubkey = saved_vote_history.pubkey();
         let filename = self.filename(&pubkey);
-        trace!("store: {}", filename.display());
         let new_filename = filename.with_extension("bin.new");
+        info!("storing: {}", new_filename.display());
 
         {
             // overwrite anything if exists
@@ -163,6 +163,7 @@ impl VoteHistoryStorage for FileVoteHistoryStorage {
             saved_vote_history.serialize_into(&mut file)?;
             // file.sync_all() hurts performance; pipeline sync-ing and submitting votes to the cluster!
         }
+        info!("renaming: {}", filename.display());
         fs::rename(&new_filename, &filename)?;
         // self.path.parent().sync_all() hurts performance same as the above sync
         Ok(())
