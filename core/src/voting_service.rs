@@ -285,13 +285,13 @@ impl VotingService {
                 slot,
                 saved_vote_history,
             } => {
-                let mut measure = Measure::start("alpenglow vote history save");
-                if let Err(err) = vote_history_storage.store(&saved_vote_history) {
-                    error!("Unable to save vote history to storage: {:?}", err);
-                    std::process::exit(1);
-                }
-                measure.stop();
-                trace!("{measure}");
+                // let mut measure = Measure::start("alpenglow vote history save");
+                // if let Err(err) = vote_history_storage.store(&saved_vote_history) {
+                //     error!("Unable to save vote history to storage: {:?}", err);
+                //     std::process::exit(1);
+                // }
+                // measure.stop();
+                // trace!("{measure}");
 
                 Self::broadcast_alpenglow_vote(
                     slot,
@@ -303,7 +303,7 @@ impl VotingService {
                 );
 
                 // TODO: Test that no important votes are overwritten
-                cluster_info.push_alpenglow_vote(tx);
+                // cluster_info.push_alpenglow_vote(tx);
             }
             VoteOp::PushAlpenglowBLSMessage {
                 bls_message,
