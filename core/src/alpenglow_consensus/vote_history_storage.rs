@@ -71,6 +71,7 @@ impl From<SavedVoteHistory> for SavedVoteHistoryVersions {
 #[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct SavedVoteHistory {
     signature: Signature,
+    #[serde(with = "serde_bytes")]
     data: Vec<u8>,
     #[serde(skip)]
     node_pubkey: Pubkey,
