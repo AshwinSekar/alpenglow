@@ -535,6 +535,19 @@ impl RepairService {
             });
         get_votes_elapsed.stop();
 
+        // Add fake votes for 4 slots after the root to always repair
+        let root = root_bank.slot();
+        let epoch = root_bank.epoch();
+        let epoch_stakes = root_bank.epoch_stakes_map().get(&epoch).unwrap();
+        for slot in root + 1..root + 5 {
+            for vote_pubkey in epoch_stakes.epoch_authorized_voters().keys() {
+                slot_to_vote_pubkeys
+                    .entry(slot)
+                    .or_default()
+                    .push(*vote_pubkey);
+            }
+        }
+
         let mut add_votes_elapsed = Measure::start("add_votes");
         repair_weight.add_votes(
             blockstore,

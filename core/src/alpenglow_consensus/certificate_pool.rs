@@ -389,6 +389,7 @@ impl<VC: VoteCertificate> CertificatePool<VC> {
             .unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn highest_finalized_slot(&self) -> Slot {
         self.completed_certificates
             .iter()
