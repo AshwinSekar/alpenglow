@@ -222,13 +222,14 @@ pub fn start_loop(config: BlockCreationLoopConfig) {
             first_in_leader_window(start_slot),
             "{start_slot} was not first in leader window but voting loop notified us"
         );
-        if let Err(e) = start_leader_retry_replay(start_slot, parent_slot, skip_timer, &ctx) {
-            // Give up on this leader window
-            error!(
+        if let Err(e) =
+            start_leader_retry_replay(exit.as_ref(), start_slot, parent_slot, skip_timer, &ctx)
+        {
+            // Die
+            panic!(
                 "{my_pubkey}: Unable to produce first slot {start_slot}, skipping production of our entire leader window \
                 {start_slot}-{end_slot}: {e:?}"
             );
-            continue;
         }
 
         // Produce our window
@@ -285,9 +286,10 @@ pub fn start_loop(config: BlockCreationLoopConfig) {
 
             // Although `slot - 1`has been cleared from `poh_recorder`, it might not have finished processing in
             // `replay_stage`, which is why we use `start_leader_retry_replay`
-            if let Err(e) = start_leader_retry_replay(slot, slot - 1, skip_timer, &ctx) {
-                error!("{my_pubkey}: Unable to produce {slot}, skipping rest of leader window {slot} - {end_slot}: {e:?}");
-                break;
+            if let Err(e) =
+                start_leader_retry_replay(exit.as_ref(), slot, slot - 1, skip_timer, &ctx)
+            {
+                panic!("{my_pubkey}: Unable to produce {slot}, skipping rest of leader window {slot} - {end_slot}: {e:?}");
             }
         }
     }
@@ -324,6 +326,7 @@ fn reset_poh_recorder(bank: &Arc<Bank>, ctx: &LeaderContext) {
 /// Similar to `maybe_start_leader`, however if replay is lagging we retry
 /// until either replay finishes or we hit the block timeout.
 fn start_leader_retry_replay(
+    exit: &AtomicBool,
     slot: Slot,
     parent_slot: Slot,
     skip_timer: Instant,
@@ -331,17 +334,23 @@ fn start_leader_retry_replay(
 ) -> Result<(), StartLeaderError> {
     let my_pubkey = ctx.my_pubkey;
     let timeout = block_timeout(leader_slot_index(slot));
-    while !timeout.saturating_sub(skip_timer.elapsed()).is_zero() {
+    // Don't ever give up
+    // while !timeout.saturating_sub(skip_timer.elapsed()).is_zero() {
+    let mut logged = false;
+    while !exit.load(Ordering::Relaxed) {
         match maybe_start_leader(slot, parent_slot, ctx) {
             Ok(()) => {
                 return Ok(());
             }
             Err(StartLeaderError::ReplayIsBehind(_)) => {
-                trace!(
-                    "{my_pubkey}: Attempting to produce slot {slot}, however replay of the \
-                    the parent {parent_slot} is not yet finished, waiting. Skip timer {}",
-                    skip_timer.elapsed().as_millis()
-                );
+                if !logged {
+                    trace!(
+                        "{my_pubkey}: Attempting to produce slot {slot}, however replay of the \
+                        the parent {parent_slot} is not yet finished, waiting. Skip timer {}",
+                        skip_timer.elapsed().as_millis()
+                    );
+                    logged = true;
+                }
                 let highest_frozen_slot = ctx
                     .replay_highest_frozen
                     .highest_frozen_slot
@@ -353,7 +362,9 @@ fn start_leader_retry_replay(
                     .freeze_notification
                     .wait_timeout_while(
                         highest_frozen_slot,
-                        timeout.saturating_sub(skip_timer.elapsed()),
+                        timeout
+                            .saturating_sub(skip_timer.elapsed())
+                            .max(Duration::from_millis(50)),
                         |hfs| *hfs < parent_slot,
                     )
                     .unwrap();
@@ -361,12 +372,13 @@ fn start_leader_retry_replay(
             Err(e) => return Err(e),
         }
     }
+    Ok(())
 
-    error!(
-        "{my_pubkey}: Skipping production of {slot}: \
-        Unable to replay parent {parent_slot} in time"
-    );
-    Err(StartLeaderError::ReplayIsBehind(parent_slot))
+    // error!(
+    //     "{my_pubkey}: Skipping production of {slot}: \
+    //     Unable to replay parent {parent_slot} in time"
+    // );
+    // Err(StartLeaderError::ReplayIsBehind(parent_slot))
 }
 
 /// Checks if we are set to produce a leader block for `slot`:
