@@ -597,7 +597,7 @@ impl ReplayStage {
             rpc_subscriptions,
             slot_status_notifier,
             accounts_background_request_sender,
-            transaction_status_sender,
+            transaction_status_sender: _,
             block_meta_sender,
             entry_notification_sender,
             bank_notification_sender,
@@ -625,6 +625,7 @@ impl ReplayStage {
         } = receivers;
 
         trace!("replay stage");
+        let transaction_status_sender = None;
 
         // Start the replay stage loop
         let (lockouts_sender, commitment_service) = AggregateCommitmentService::new(
