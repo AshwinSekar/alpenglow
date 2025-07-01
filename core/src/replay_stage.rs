@@ -3481,38 +3481,38 @@ impl ReplayStage {
                     }
                 }
 
-                let block_id = if bank.collector_id() != my_pubkey {
-                    // If the block does not have at least DATA_SHREDS_PER_FEC_BLOCK correctly retransmitted
-                    // shreds in the last FEC set, mark it dead. No reason to perform this check on our leader block.
-                    match blockstore.check_last_fec_set_and_get_block_id(
-                        bank.slot(),
-                        bank.hash(),
-                        false,
-                        &bank.feature_set,
-                    ) {
-                        Ok(block_id) => block_id,
-                        Err(result_err) => {
-                            let root = bank_forks.read().unwrap().root();
-                            Self::mark_dead_slot(
-                                blockstore,
-                                bank,
-                                root,
-                                &result_err,
-                                rpc_subscriptions,
-                                slot_status_notifier,
-                                progress,
-                                duplicate_slots_to_repair,
-                                ancestor_hashes_replay_update_sender,
-                                purge_repair_slot_counter,
-                                &mut tbft_structs,
-                            );
-                            continue;
-                        }
-                    }
-                } else {
-                    None
-                };
-                bank.set_block_id(block_id);
+                // let block_id = if bank.collector_id() != my_pubkey {
+                //     // If the block does not have at least DATA_SHREDS_PER_FEC_BLOCK correctly retransmitted
+                //     // shreds in the last FEC set, mark it dead. No reason to perform this check on our leader block.
+                //     match blockstore.check_last_fec_set_and_get_block_id(
+                //         bank.slot(),
+                //         bank.hash(),
+                //         false,
+                //         &bank.feature_set,
+                //     ) {
+                //         Ok(block_id) => block_id,
+                //         Err(result_err) => {
+                //             let root = bank_forks.read().unwrap().root();
+                //             Self::mark_dead_slot(
+                //                 blockstore,
+                //                 bank,
+                //                 root,
+                //                 &result_err,
+                //                 rpc_subscriptions,
+                //                 slot_status_notifier,
+                //                 progress,
+                //                 duplicate_slots_to_repair,
+                //                 ancestor_hashes_replay_update_sender,
+                //                 purge_repair_slot_counter,
+                //                 &mut tbft_structs,
+                //             );
+                //             continue;
+                //         }
+                //     }
+                // } else {
+                //     None
+                // };
+                // bank.set_block_id(block_id);
 
                 let r_replay_stats = replay_stats.read().unwrap();
                 let replay_progress = bank_progress.replay_progress.clone();
@@ -3524,10 +3524,10 @@ impl ReplayStage {
                     r_replay_stats.batch_execute.totals
                 );
                 new_frozen_slots.push(bank.slot());
-                let _ = cluster_slots_update_sender.send(vec![bank_slot]);
-                if let Some(transaction_status_sender) = transaction_status_sender {
-                    transaction_status_sender.send_transaction_status_freeze_message(bank);
-                }
+                // let _ = cluster_slots_update_sender.send(vec![bank_slot]);
+                // if let Some(transaction_status_sender) = transaction_status_sender {
+                //     transaction_status_sender.send_transaction_status_freeze_message(bank);
+                // }
                 bank.freeze();
                 datapoint_info!(
                     "bank_frozen",
@@ -3535,13 +3535,13 @@ impl ReplayStage {
                     ("hash", bank.hash().to_string(), String),
                 );
                 // report cost tracker stats
-                cost_update_sender
-                    .send(CostUpdate::FrozenBank {
-                        bank: bank.clone_without_scheduler(),
-                    })
-                    .unwrap_or_else(|err| {
-                        warn!("cost_update_sender failed sending bank stats: {:?}", err)
-                    });
+                // cost_update_sender
+                //     .send(CostUpdate::FrozenBank {
+                //         bank: bank.clone_without_scheduler(),
+                //     })
+                //     .unwrap_or_else(|err| {
+                //         warn!("cost_update_sender failed sending bank stats: {:?}", err)
+                //     });
 
                 assert_ne!(bank.hash(), Hash::default());
                 // Needs to be updated before `check_slot_agrees_with_cluster()` so that
@@ -3615,46 +3615,46 @@ impl ReplayStage {
                     });
                 }
 
-                if let Some(sender) = bank_notification_sender {
-                    sender
-                        .sender
-                        .send(BankNotification::Frozen(bank.clone_without_scheduler()))
-                        .unwrap_or_else(|err| warn!("bank_notification_sender failed: {:?}", err));
-                }
-                blockstore_processor::send_block_meta(bank, block_meta_sender);
+                // if let Some(sender) = bank_notification_sender {
+                //     sender
+                //         .sender
+                //         .send(BankNotification::Frozen(bank.clone_without_scheduler()))
+                //         .unwrap_or_else(|err| warn!("bank_notification_sender failed: {:?}", err));
+                // }
+                // blockstore_processor::send_block_meta(bank, block_meta_sender);
 
-                let bank_hash = bank.hash();
-                if let Some(new_frozen_voters) = tbft_structs.as_mut().and_then(|tbft| {
-                    tbft.unfrozen_gossip_verified_vote_hashes
-                        .remove_slot_hash(bank.slot(), &bank_hash)
-                }) {
-                    for pubkey in new_frozen_voters {
-                        latest_validator_votes_for_frozen_banks.check_add_vote(
-                            pubkey,
-                            bank.slot(),
-                            Some(bank_hash),
-                            false,
-                        );
-                    }
-                }
+                // let bank_hash = bank.hash();
+                // if let Some(new_frozen_voters) = tbft_structs.as_mut().and_then(|tbft| {
+                //     tbft.unfrozen_gossip_verified_vote_hashes
+                //         .remove_slot_hash(bank.slot(), &bank_hash)
+                // }) {
+                //     for pubkey in new_frozen_voters {
+                //         latest_validator_votes_for_frozen_banks.check_add_vote(
+                //             pubkey,
+                //             bank.slot(),
+                //             Some(bank_hash),
+                //             false,
+                //         );
+                //     }
+                // }
 
-                if let Some(ref block_metadata_notifier) = block_metadata_notifier {
-                    let parent_blockhash = bank
-                        .parent()
-                        .map(|bank| bank.last_blockhash())
-                        .unwrap_or_default();
-                    block_metadata_notifier.notify_block_metadata(
-                        bank.parent_slot(),
-                        &parent_blockhash.to_string(),
-                        bank.slot(),
-                        &bank.last_blockhash().to_string(),
-                        &bank.get_rewards_and_num_partitions(),
-                        Some(bank.clock().unix_timestamp),
-                        Some(bank.block_height()),
-                        bank.executed_transaction_count(),
-                        r_replay_progress.num_entries as u64,
-                    )
-                }
+                // if let Some(ref block_metadata_notifier) = block_metadata_notifier {
+                //     let parent_blockhash = bank
+                //         .parent()
+                //         .map(|bank| bank.last_blockhash())
+                //         .unwrap_or_default();
+                //     block_metadata_notifier.notify_block_metadata(
+                //         bank.parent_slot(),
+                //         &parent_blockhash.to_string(),
+                //         bank.slot(),
+                //         &bank.last_blockhash().to_string(),
+                //         &bank.get_rewards_and_num_partitions(),
+                //         Some(bank.clock().unix_timestamp),
+                //         Some(bank.block_height()),
+                //         bank.executed_transaction_count(),
+                //         r_replay_progress.num_entries as u64,
+                //     )
+                // }
                 bank_complete_time.stop();
 
                 r_replay_stats.report_stats(
