@@ -14,7 +14,7 @@ use {
         result::{Error, Result},
     },
     assert_matches::debug_assert_matches,
-    crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
+    crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender},
     rayon::{prelude::*, ThreadPool},
     solana_feature_set as feature_set,
     solana_gossip::cluster_info::ClusterInfo,
@@ -279,9 +279,7 @@ impl WindowServiceChannels {
 
 pub(crate) struct WindowService {
     t_insert: JoinHandle<()>,
-    t_check_duplicate: JoinHandle<()>,
     repair_service: RepairService,
-    certificate_service: CertificateService,
 }
 
 impl WindowService {
@@ -321,19 +319,19 @@ impl WindowService {
             repair_service_channels,
         );
 
-        let certificate_service =
-            CertificateService::new(exit.clone(), blockstore.clone(), certificate_receiver);
+        // let certificate_service =
+        //     CertificateService::new(exit.clone(), blockstore.clone(), certificate_receiver);
 
-        let (duplicate_sender, duplicate_receiver) = unbounded();
+        let (duplicate_sender, duplicate_receiver) = bounded(1);
 
-        let t_check_duplicate = Self::start_check_duplicate_thread(
-            cluster_info,
-            exit.clone(),
-            blockstore.clone(),
-            duplicate_receiver,
-            duplicate_slots_sender,
-            bank_forks,
-        );
+        // let t_check_duplicate = Self::start_check_duplicate_thread(
+        //     cluster_info,
+        //     exit.clone(),
+        //     blockstore.clone(),
+        //     duplicate_receiver,
+        //     duplicate_slots_sender,
+        //     bank_forks,
+        // );
 
         let t_insert = Self::start_window_insert_thread(
             exit,
@@ -348,9 +346,7 @@ impl WindowService {
 
         WindowService {
             t_insert,
-            t_check_duplicate,
             repair_service,
-            certificate_service,
         }
     }
 
@@ -467,9 +463,7 @@ impl WindowService {
 
     pub(crate) fn join(self) -> thread::Result<()> {
         self.t_insert.join()?;
-        self.t_check_duplicate.join()?;
-        self.repair_service.join()?;
-        self.certificate_service.join()
+        self.repair_service.join()
     }
 }
 

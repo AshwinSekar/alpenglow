@@ -126,10 +126,10 @@ use {
         hard_forks::HardForks,
         hash::Hash,
         pubkey::Pubkey,
+        quic::NotifyKeyUpdate,
         shred_version::compute_shred_version,
         signature::{Keypair, Signer},
         timing::timestamp,
-        quic::NotifyKeyUpdate,
     },
     solana_send_transaction_service::send_transaction_service,
     solana_streamer::{quic::QuicServerParams, socket::SocketAddrSpace, streamer::StakedNodes},
@@ -1682,7 +1682,7 @@ impl Validator {
         //     config.enable_block_production_forwarding,
         //     config.generator_config.clone(),
         // );
-        let mut key_notifies : Vec<Arc<dyn NotifyKeyUpdate + Sync + Send>> = vec![];
+        let mut key_notifies: Vec<Arc<dyn NotifyKeyUpdate + Sync + Send>> = vec![];
 
         datapoint_info!(
             "validator-new",

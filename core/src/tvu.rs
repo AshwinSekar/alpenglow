@@ -26,7 +26,7 @@ use {
         window_service::{WindowService, WindowServiceChannels},
     },
     bytes::Bytes,
-    crossbeam_channel::{unbounded, Receiver, Sender},
+    crossbeam_channel::{unbounded, bounded, Receiver, Sender},
     solana_client::connection_cache::ConnectionCache,
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierArc,
     solana_gossip::{
@@ -66,16 +66,11 @@ use {
 pub struct Tvu {
     fetch_stage: ShredFetchStage,
     shred_sigverify: JoinHandle<()>,
-    retransmit_stage: RetransmitStage,
     window_service: WindowService,
     cluster_slots_service: ClusterSlotsService,
     replay_stage: Option<ReplayStage>,
-    blockstore_cleanup_service: Option<BlockstoreCleanupService>,
-    cost_update_service: CostUpdateService,
-    voting_service: VotingService,
-    warm_quic_cache_service: Option<WarmQuicCacheService>,
     drop_bank_service: DropBankService,
-    duplicate_shred_listener: DuplicateShredListener,
+    retransmit_stage: RetransmitStage,
 }
 
 pub struct TvuSockets {
@@ -353,26 +348,26 @@ impl Tvu {
             leader_window_notifier,
         };
 
-        let voting_service = VotingService::new(
-            voting_receiver,
-            cluster_info.clone(),
-            poh_recorder.clone(),
-            tower_storage,
-            vote_history_storage.clone(),
-            vote_connection_cache.clone(),
-            bank_forks.clone(),
-            voting_service_additional_listeners.cloned(),
-        );
+        // let voting_service = VotingService::new(
+        //     voting_receiver,
+        //     cluster_info.clone(),
+        //     poh_recorder.clone(),
+        //     tower_storage,
+        //     vote_history_storage.clone(),
+        //     vote_connection_cache.clone(),
+        //     bank_forks.clone(),
+        //     voting_service_additional_listeners.cloned(),
+        // );
 
-        let warm_quic_cache_service = create_cache_warmer_if_needed(
-            connection_cache,
-            vote_connection_cache,
-            cluster_info,
-            poh_recorder,
-            &exit,
-        );
+        // let warm_quic_cache_service = create_cache_warmer_if_needed(
+        //     connection_cache,
+        //     vote_connection_cache,
+        //     cluster_info,
+        //     poh_recorder,
+        //     &exit,
+        // );
 
-        let cost_update_service = CostUpdateService::new(blockstore.clone(), cost_update_receiver);
+        // let cost_update_service = CostUpdateService::new(blockstore.clone(), cost_update_receiver);
 
         let drop_bank_service = DropBankService::new(drop_bank_receiver);
 
@@ -386,57 +381,41 @@ impl Tvu {
             )?)
         };
 
-        let blockstore_cleanup_service = tvu_config.max_ledger_shreds.map(|max_ledger_shreds| {
-            BlockstoreCleanupService::new(blockstore.clone(), max_ledger_shreds, exit.clone())
-        });
+        // let blockstore_cleanup_service = tvu_config.max_ledger_shreds.map(|max_ledger_shreds| {
+        //     BlockstoreCleanupService::new(blockstore.clone(), max_ledger_shreds, exit.clone())
+        // });
 
-        let duplicate_shred_listener = DuplicateShredListener::new(
-            exit,
-            cluster_info.clone(),
-            DuplicateShredHandler::new(
-                blockstore,
-                leader_schedule_cache.clone(),
-                bank_forks.clone(),
-                duplicate_slots_sender,
-                tvu_config.shred_version,
-            ),
-        );
+        // let duplicate_shred_listener = DuplicateShredListener::new(
+        //     exit,
+        //     cluster_info.clone(),
+        //     DuplicateShredHandler::new(
+        //         blockstore,
+        //         leader_schedule_cache.clone(),
+        //         bank_forks.clone(),
+        //         duplicate_slots_sender,
+        //         tvu_config.shred_version,
+        //     ),
+        // );
 
         Ok(Tvu {
             fetch_stage,
             shred_sigverify,
-            retransmit_stage,
             window_service,
-            cluster_slots_service,
+            retransmit_stage,
             replay_stage,
-            blockstore_cleanup_service,
-            cost_update_service,
-            voting_service,
-            warm_quic_cache_service,
+            cluster_slots_service,
             drop_bank_service,
-            duplicate_shred_listener,
         })
     }
 
     pub fn join(self) -> thread::Result<()> {
-        self.retransmit_stage.join()?;
         self.window_service.join()?;
-        self.cluster_slots_service.join()?;
         self.fetch_stage.join()?;
         self.shred_sigverify.join()?;
-        if self.blockstore_cleanup_service.is_some() {
-            self.blockstore_cleanup_service.unwrap().join()?;
-        }
-        if self.replay_stage.is_some() {
-            self.replay_stage.unwrap().join()?;
-        }
-        self.cost_update_service.join()?;
-        self.voting_service.join()?;
-        if let Some(warmup_service) = self.warm_quic_cache_service {
-            warmup_service.join()?;
-        }
+        self.cluster_slots_service.join()?;
+        self.retransmit_stage.join()?;
+        self.replay_stage.unwrap().join()?;
         self.drop_bank_service.join()?;
-        self.duplicate_shred_listener.join()?;
         Ok(())
     }
 }
