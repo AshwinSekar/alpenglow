@@ -3724,28 +3724,28 @@ impl ReplayStage {
             return vec![];
         }
 
-        let replay_result_vec = match replay_mode {
+        let replay_result_vec : Vec<ReplaySlotFromBlockstore> = match replay_mode {
             // Skip the overhead of the threadpool if there is only one bank to play
-            ForkReplayMode::Parallel(fork_thread_pool) if num_active_banks > 1 => {
-                Self::replay_active_banks_concurrently(
-                    blockstore,
-                    bank_forks,
-                    fork_thread_pool,
-                    replay_tx_thread_pool,
-                    my_pubkey,
-                    vote_account,
-                    progress,
-                    transaction_status_sender,
-                    entry_notification_sender,
-                    verify_recyclers,
-                    replay_vote_sender,
-                    alpenglow_vote_sender,
-                    replay_timing,
-                    log_messages_bytes_limit,
-                    &active_bank_slots,
-                    prioritization_fee_cache,
-                )
-            }
+            // ForkReplayMode::Parallel(fork_thread_pool) if num_active_banks > 1 => {
+            //     Self::replay_active_banks_concurrently(
+            //         blockstore,
+            //         bank_forks,
+            //         fork_thread_pool,
+            //         replay_tx_thread_pool,
+            //         my_pubkey,
+            //         vote_account,
+            //         progress,
+            //         transaction_status_sender,
+            //         entry_notification_sender,
+            //         verify_recyclers,
+            //         replay_vote_sender,
+            //         alpenglow_vote_sender,
+            //         replay_timing,
+            //         log_messages_bytes_limit,
+            //         &active_bank_slots,
+            //         prioritization_fee_cache,
+            //     )
+            // }
             ForkReplayMode::Serial | ForkReplayMode::Parallel(_) => active_bank_slots
                 .iter()
                 .map(|bank_slot| {
