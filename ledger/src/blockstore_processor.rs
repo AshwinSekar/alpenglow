@@ -1673,6 +1673,7 @@ fn confirm_slot_entries(
     log_messages_bytes_limit: Option<usize>,
     prioritization_fee_cache: &PrioritizationFeeCache,
 ) -> result::Result<(), BlockstoreProcessorError> {
+    let skip_verification = true;
     let ConfirmationTiming {
         confirmation_elapsed,
         replay_elapsed,
@@ -1696,20 +1697,20 @@ fn confirm_slot_entries(
         .iter()
         .enumerate()
         .map(|(i, entry)| {
-            if let Some(entry_notification_sender) = entry_notification_sender {
-                let entry_index = progress.num_entries.saturating_add(i);
-                if let Err(err) = entry_notification_sender.send(EntryNotification {
-                    slot,
-                    index: entry_index,
-                    entry: entry.into(),
-                    starting_transaction_index: entry_tx_starting_index,
-                }) {
-                    warn!(
-                        "Slot {}, entry {} entry_notification_sender send failed: {:?}",
-                        slot, entry_index, err
-                    );
-                }
-            }
+            // if let Some(entry_notification_sender) = entry_notification_sender {
+            //     let entry_index = progress.num_entries.saturating_add(i);
+            //     if let Err(err) = entry_notification_sender.send(EntryNotification {
+            //         slot,
+            //         index: entry_index,
+            //         entry: entry.into(),
+            //         starting_transaction_index: entry_tx_starting_index,
+            //     }) {
+            //         warn!(
+            //             "Slot {}, entry {} entry_notification_sender send failed: {:?}",
+            //             slot, entry_index, err
+            //         );
+            //     }
+            // }
             let num_txs = entry.transactions.len();
             let next_tx_starting_index = entry_tx_starting_index.saturating_add(num_txs);
             entry_tx_starting_indexes.push(entry_tx_starting_index);
