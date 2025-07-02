@@ -876,8 +876,33 @@ impl ReplayStage {
                         }
                     }
                     if did_complete_bank {
-                        let bank_forks_r = bank_forks.read().unwrap();
-                        progress.handle_new_root(&bank_forks_r);
+                        let new_root = new_frozen_slots.iter().max().copied().unwrap();
+                        if new_root % 4 == 3 {
+                            // root this slot
+                            let highest_super_majority_root = Some(
+                                block_commitment_cache
+                                .read()
+                                .unwrap()
+                                .highest_super_majority_root(),
+                            );
+                            Self::check_and_handle_new_root(
+                                &identity_keypair.pubkey(),
+                                new_root,
+                                new_root,
+                                bank_forks.as_ref(),
+                                Some(&mut progress),
+                                blockstore.as_ref(),
+                                &leader_schedule_cache,
+                                &accounts_background_request_sender,
+                                &rpc_subscriptions,
+                                highest_super_majority_root,
+                                &bank_notification_sender,
+                                &mut has_new_vote_been_rooted,
+                                &mut vec![],
+                                &drop_bank_sender,
+                                None,
+                            ).unwrap();
+                        }
                     }
                 }
                 replay_active_banks_time.stop();

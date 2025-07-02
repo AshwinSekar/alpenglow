@@ -337,7 +337,7 @@ impl VotingLoop {
     /// If so, set the root as the highest slot that fits these conditions
     /// and return the root
     fn maybe_set_root(
-        new_root: Slot,
+        _new_root: Slot,
         cert_pool: &mut CertificatePool<LegacyVoteCertificate>,
         pending_blocks: &mut PendingBlocks,
         accounts_background_request_sender: &AbsRequestSender,
@@ -346,33 +346,38 @@ impl VotingLoop {
         ctx: &mut SharedContext,
         vctx: &mut VotingContext,
     ) -> Option<Slot> {
+        let (new_root, hash) = {
+            let bank_forks_r = ctx.bank_forks.read().unwrap();
+            let root = bank_forks_r.root();
+            let hash = bank_forks_r.bank_hash(root).unwrap();
+            (root, hash)
+        };
         trace!("{}: Attempting to set new root {new_root}", ctx.my_pubkey);
         vctx.vote_history.set_root(new_root);
         cert_pool.handle_new_root(ctx.bank_forks.read().unwrap().get(new_root).unwrap());
         *pending_blocks = pending_blocks.split_off(&new_root);
-        if let Err(e) = ReplayStage::check_and_handle_new_root(
-            &ctx.my_pubkey,
-            new_root,
-            new_root,
-            ctx.bank_forks.as_ref(),
-            None,
-            ctx.blockstore.as_ref(),
-            &ctx.leader_schedule_cache,
-            accounts_background_request_sender,
-            &ctx.rpc_subscriptions,
-            Some(new_root),
-            bank_notification_sender,
-            &mut vctx.has_new_vote_been_rooted,
-            &mut vctx.voted_signatures,
-            drop_bank_sender,
-            None,
-        ) {
-            error!("Unable to set root: {e:?}");
-            return None;
-        }
+        // if let Err(e) = ReplayStage::check_and_handle_new_root(
+        //     &ctx.my_pubkey,
+        //     new_root,
+        //     new_root,
+        //     ctx.bank_forks.as_ref(),
+        //     None,
+        //     ctx.blockstore.as_ref(),
+        //     &ctx.leader_schedule_cache,
+        //     accounts_background_request_sender,
+        //     &ctx.rpc_subscriptions,
+        //     Some(new_root),
+        //     bank_notification_sender,
+        //     &mut vctx.has_new_vote_been_rooted,
+        //     &mut vctx.voted_signatures,
+        //     drop_bank_sender,
+        //     None,
+        // ) {
+        //     error!("Unable to set root: {e:?}");
+        //     return None;
+        // }
 
         // Distinguish between duplicate versions of same slot
-        let hash = ctx.bank_forks.read().unwrap().bank_hash(new_root).unwrap();
         if let Err(e) =
             ctx.blockstore
                 .insert_optimistic_slot(new_root, &hash, timestamp().try_into().unwrap())
