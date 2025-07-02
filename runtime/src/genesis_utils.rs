@@ -3,7 +3,6 @@ use {
     log::*,
     solana_bls::{keypair::Keypair as BLSKeypair, Pubkey as BLSPubkey},
     solana_feature_set::{self, FeatureSet, FEATURE_NAMES},
-    solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_sdk::{
         account::{Account, AccountSharedData},
         feature::{self, Feature},
@@ -19,7 +18,7 @@ use {
     },
     solana_stake_program::stake_state,
     solana_vote_program::vote_state,
-    std::{borrow::Borrow, fs::File, io::Read},
+    std::borrow::Borrow,
 };
 
 // Default amount received by the validator
@@ -349,66 +348,69 @@ pub fn activate_feature(genesis_config: &mut GenesisConfig, feature_id: Pubkey) 
     );
 }
 
-pub fn include_alpenglow_bpf_program(genesis_config: &mut GenesisConfig, alpenglow_so_path: &str) {
+pub fn include_alpenglow_bpf_program(
+    _genesis_config: &mut GenesisConfig,
+    _alpenglow_so_path: &str,
+) {
     // Parse out the elf
-    let mut program_data_elf: Vec<u8> = vec![];
-    File::open(alpenglow_so_path)
-        .and_then(|mut file| file.read_to_end(&mut program_data_elf))
-        .unwrap_or_else(|err| {
-            panic!(
-                "Error: failed to read alpenglow-vote program from path {}: {}",
-                alpenglow_so_path, err
-            )
-        });
+    // let mut program_data_elf: Vec<u8> = vec![];
+    // File::open(alpenglow_so_path)
+    //     .and_then(|mut file| file.read_to_end(&mut program_data_elf))
+    //     .unwrap_or_else(|err| {
+    //         panic!(
+    //             "Error: failed to read alpenglow-vote program from path {}: {}",
+    //             alpenglow_so_path, err
+    //         )
+    //     });
 
-    // Derive the address for the program data account
-    let address = alpenglow_vote::id();
-    let loader = solana_program::bpf_loader_upgradeable::id();
-    let programdata_address =
-        solana_program::bpf_loader_upgradeable::get_program_data_address(&address);
+    // // Derive the address for the program data account
+    // let address = alpenglow_vote::id();
+    // let loader = solana_program::bpf_loader_upgradeable::id();
+    // let programdata_address =
+    //     solana_program::bpf_loader_upgradeable::get_program_data_address(&address);
 
-    // Generate the data for the program data account
-    let upgrade_authority_address = system_program::id();
-    let mut program_data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
-        slot: 0,
-        upgrade_authority_address: Some(upgrade_authority_address),
-    })
-    .unwrap();
-    program_data.extend_from_slice(&program_data_elf);
+    // // Generate the data for the program data account
+    // let upgrade_authority_address = system_program::id();
+    // let mut program_data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+    //     slot: 0,
+    //     upgrade_authority_address: Some(upgrade_authority_address),
+    // })
+    // .unwrap();
+    // program_data.extend_from_slice(&program_data_elf);
 
-    // Store the program data account into genesis
-    genesis_config.add_account(
-        programdata_address,
-        AccountSharedData::from(Account {
-            lamports: genesis_config
-                .rent
-                .minimum_balance(program_data.len())
-                .max(1u64),
-            data: program_data,
-            owner: loader,
-            executable: false,
-            rent_epoch: 0,
-        }),
-    );
+    // // Store the program data account into genesis
+    // genesis_config.add_account(
+    //     programdata_address,
+    //     AccountSharedData::from(Account {
+    //         lamports: genesis_config
+    //             .rent
+    //             .minimum_balance(program_data.len())
+    //             .max(1u64),
+    //         data: program_data,
+    //         owner: loader,
+    //         executable: false,
+    //         rent_epoch: 0,
+    //     }),
+    // );
 
-    // Add the program acccount to genesis
-    let program_data = bincode::serialize(&UpgradeableLoaderState::Program {
-        programdata_address,
-    })
-    .unwrap();
-    genesis_config.add_account(
-        address,
-        AccountSharedData::from(Account {
-            lamports: genesis_config
-                .rent
-                .minimum_balance(program_data.len())
-                .max(1u64),
-            data: program_data,
-            owner: loader,
-            executable: true,
-            rent_epoch: 0,
-        }),
-    );
+    // // Add the program acccount to genesis
+    // let program_data = bincode::serialize(&UpgradeableLoaderState::Program {
+    //     programdata_address,
+    // })
+    // .unwrap();
+    // genesis_config.add_account(
+    //     address,
+    //     AccountSharedData::from(Account {
+    //         lamports: genesis_config
+    //             .rent
+    //             .minimum_balance(program_data.len())
+    //             .max(1u64),
+    //         data: program_data,
+    //         owner: loader,
+    //         executable: true,
+    //         rent_epoch: 0,
+    //     }),
+    // );
 }
 
 #[allow(clippy::too_many_arguments)]
