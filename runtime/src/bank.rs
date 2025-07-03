@@ -3704,11 +3704,13 @@ impl Bank {
                 &processing_results,
             );
 
+
             let to_store = (self.slot(), accounts_to_store.as_slice());
             self.update_bank_hash_stats(&to_store);
-            self.rc
-                .accounts
-                .store_cached(to_store, transactions.as_deref());
+            std::hint::black_box(transactions);
+            // self.rc
+            //     .accounts
+            //     .store_cached(to_store, transactions.as_deref());
         });
 
         self.collect_rent(&processing_results);
