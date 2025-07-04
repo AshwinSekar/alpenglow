@@ -16,7 +16,7 @@ use {
             Arc, RwLock,
         },
         thread::{sleep, Builder, JoinHandle},
-        time::Duration,
+        time::{Duration, Instant},
     },
 };
 
@@ -147,6 +147,8 @@ pub struct PrioritizationFeeCache {
     service_thread: Option<JoinHandle<()>>,
     sender: Sender<CacheServiceUpdate>,
     metrics: Arc<PrioritizationFeeCacheMetrics>,
+    send_metrics_timer: Instant,
+    metrics_count: AtomicU64,
 }
 
 impl Default for PrioritizationFeeCache {
@@ -188,6 +190,8 @@ impl PrioritizationFeeCache {
             service_thread,
             sender,
             metrics,
+            send_metrics_timer: Instant::now(),
+            metrics_count: AtomicU64::new(1),
         }
     }
 
@@ -235,6 +239,15 @@ impl PrioritizationFeeCache {
                     .map(|(_, key)| *key)
                     .collect();
 
+                if self.send_metrics_timer.elapsed()
+                    > Duration::from_secs(self.metrics_count.load(Ordering::Relaxed))
+                {
+                    datapoint_info!(
+                        "priority_fee_cache_send",
+                        ("channel_len", self.sender.len(), i64)
+                    );
+                    self.metrics_count.fetch_add(1, Ordering::Relaxed);
+                }
                 self.sender
                     .send(CacheServiceUpdate::TransactionUpdate {
                         slot: bank.slot(),
@@ -359,8 +372,19 @@ impl PrioritizationFeeCache {
         // Potentially there are more than one bank that updates Prioritization Fee
         // for a slot. The updates are tracked and finalized by bank_id.
         let mut unfinalized = UnfinalizedPrioritizationFees::new();
+        let mut timer = Instant::now();
+        let mut cache_elapsed = Duration::default();
 
         loop {
+            if timer.elapsed().as_secs() > 1 {
+                datapoint_info!(
+                    "priority_fee_cache_recv",
+                    ("unfinalized_size", unfinalized.len(), i64),
+                    ("update_cache_us_per_s", cache_elapsed.as_micros(), i64)
+                );
+                cache_elapsed = Duration::default();
+                timer = Instant::now();
+            }
             let update = match receiver.try_recv() {
                 Ok(update) => update,
                 Err(TryRecvError::Empty) => {
@@ -378,14 +402,18 @@ impl PrioritizationFeeCache {
                     bank_id,
                     transaction_fee,
                     writable_accounts,
-                } => Self::update_cache(
-                    &mut unfinalized,
-                    slot,
-                    bank_id,
-                    transaction_fee,
-                    writable_accounts,
-                    &metrics,
-                ),
+                } => {
+                    let now = Instant::now();
+                    Self::update_cache(
+                        &mut unfinalized,
+                        slot,
+                        bank_id,
+                        transaction_fee,
+                        writable_accounts,
+                        &metrics,
+                    );
+                    cache_elapsed = cache_elapsed.saturating_add(now.elapsed());
+                }
                 CacheServiceUpdate::BankFinalized { slot, bank_id } => {
                     Self::finalize_slot(
                         &mut unfinalized,
