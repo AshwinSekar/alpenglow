@@ -26,7 +26,7 @@ use {
         window_service::{WindowService, WindowServiceChannels},
     },
     bytes::Bytes,
-    crossbeam_channel::{unbounded, bounded, Receiver, Sender},
+    crossbeam_channel::{bounded, unbounded, Receiver, Sender},
     solana_client::connection_cache::ConnectionCache,
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierArc,
     solana_gossip::{

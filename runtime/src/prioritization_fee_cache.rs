@@ -235,6 +235,9 @@ impl PrioritizationFeeCache {
                     .map(|(_, key)| *key)
                     .collect();
 
+                if self.sender.len() > 1000 {
+                    error!("#ASH: prio fee sender backed up {}", self.sender.len());
+                }
                 self.sender
                     .send(CacheServiceUpdate::TransactionUpdate {
                         slot: bank.slot(),
@@ -277,6 +280,19 @@ impl PrioritizationFeeCache {
         writable_accounts: Vec<Pubkey>,
         metrics: &PrioritizationFeeCacheMetrics,
     ) {
+        info!("#ASH: updating cache for slot {slot} bank_id {bank_id}");
+        if unfinalized.len() > 1000 {
+            error!(
+                "#ASH: unfinalized prioritization fee size {}",
+                unfinalized.len()
+            );
+        }
+        if unfinalized.entry(slot).or_default().len() > 1000 {
+            error!(
+                "#ASH: unfinalized prioritization fee size for slot {slot} {}",
+                unfinalized.get(&slot).unwrap().len()
+            );
+        }
         let (_, entry_update_us) = measure_us!(unfinalized
             .entry(slot)
             .or_default()
@@ -298,6 +314,7 @@ impl PrioritizationFeeCache {
         if unfinalized.is_empty() {
             return;
         }
+        info!("#ASH: finalizing slot for slot {slot} bank_id {bank_id}");
 
         // prune cache by evicting write account entry from prioritization fee if its fee is less
         // or equal to block's minimum transaction fee, because they are irrelevant in calculating

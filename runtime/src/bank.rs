@@ -3704,7 +3704,6 @@ impl Bank {
                 &processing_results,
             );
 
-
             let to_store = (self.slot(), accounts_to_store.as_slice());
             self.update_bank_hash_stats(&to_store);
             std::hint::black_box(transactions);

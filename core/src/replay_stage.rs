@@ -879,9 +879,9 @@ impl ReplayStage {
                             // root this slot
                             let highest_super_majority_root = Some(
                                 block_commitment_cache
-                                .read()
-                                .unwrap()
-                                .highest_super_majority_root(),
+                                    .read()
+                                    .unwrap()
+                                    .highest_super_majority_root(),
                             );
                             Self::check_and_handle_new_root(
                                 &identity_keypair.pubkey(),
@@ -899,7 +899,8 @@ impl ReplayStage {
                                 &mut vec![],
                                 &drop_bank_sender,
                                 None,
-                            ).unwrap();
+                            )
+                            .unwrap();
                         }
                     }
                 }
@@ -3746,7 +3747,7 @@ impl ReplayStage {
             return vec![];
         }
 
-        let replay_result_vec : Vec<ReplaySlotFromBlockstore> = match replay_mode {
+        let replay_result_vec: Vec<ReplaySlotFromBlockstore> = match replay_mode {
             // Skip the overhead of the threadpool if there is only one bank to play
             // ForkReplayMode::Parallel(fork_thread_pool) if num_active_banks > 1 => {
             //     Self::replay_active_banks_concurrently(
