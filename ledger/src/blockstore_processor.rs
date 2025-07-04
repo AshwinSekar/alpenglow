@@ -268,7 +268,8 @@ pub fn execute_batch<'a>(
         );
     }
 
-    prioritization_fee_cache.update(bank, committed_transactions.into_iter());
+    // prioritization_fee_cache.update(bank, committed_transactions.into_iter());
+    std::hint::black_box(committed_transactions.into_iter());
 
     Ok(())
 }
