@@ -2,7 +2,7 @@ use {
     super::{repair_handler::RepairHandler, repair_response},
     solana_ledger::{blockstore::Blockstore, shred::Nonce},
     solana_perf::packet::{Packet, PacketBatch, PacketBatchRecycler},
-    solana_sdk::clock::Slot,
+    solana_sdk::{clock::Slot, hash::Hash},
     std::{net::SocketAddr, sync::Arc},
 };
 
@@ -25,16 +25,26 @@ impl RepairHandler for StandardRepairHandler {
         &self,
         slot: Slot,
         shred_index: u64,
+        block_id: Option<Hash>,
         dest: &SocketAddr,
         nonce: Nonce,
     ) -> Option<Packet> {
-        repair_response::repair_response_packet(
-            self.blockstore.as_ref(),
-            slot,
-            shred_index,
-            dest,
-            nonce,
-        )
+        match block_id {
+            None => repair_response::repair_response_packet(
+                self.blockstore.as_ref(),
+                slot,
+                shred_index,
+                dest,
+                nonce,
+            ),
+            Some(block_id) => {
+                let shred = self
+                    .blockstore()
+                    .get_data_shred_by_block_id(slot, shred_index, block_id)
+                    .expect("Blockstore could not get data shred")?;
+                repair_response::repair_response_packet_from_bytes(shred, dest, nonce)
+            }
+        }
     }
 
     fn run_orphan(

@@ -5,7 +5,7 @@ use {
         shred::{Nonce, SIZE_OF_DATA_SHRED_HEADERS},
     },
     solana_perf::packet::{Packet, PacketBatch, PacketBatchRecycler},
-    solana_sdk::clock::Slot,
+    solana_sdk::{clock::Slot, hash::Hash},
     std::{net::SocketAddr, sync::Arc},
 };
 
@@ -36,13 +36,19 @@ impl RepairHandler for MaliciousRepairHandler {
         &self,
         slot: Slot,
         shred_index: u64,
+        block_id: Option<Hash>,
         dest: &SocketAddr,
         nonce: Nonce,
     ) -> Option<Packet> {
-        let mut shred = self
-            .blockstore
-            .get_data_shred(slot, shred_index)
-            .expect("Blockstore could not get data shred")?;
+        let mut shred = match block_id {
+            None => self.blockstore.get_data_shred(slot, shred_index),
+            Some(block_id) => {
+                self.blockstore
+                    .get_data_shred_by_block_id(slot, shred_index, block_id)
+            }
+        }
+        .expect("Blockstore could not get data shred")?;
+
         if self
             .config
             .bad_shred_slot_frequency
@@ -50,8 +56,34 @@ impl RepairHandler for MaliciousRepairHandler {
         {
             // Change some random piece of data
             shred[Self::BAD_DATA_INDEX] = shred[Self::BAD_DATA_INDEX].wrapping_add(1);
-        }
+        };
         repair_response_packet_from_bytes(shred, dest, nonce)
+    }
+
+    fn run_window_request_for_block_id(
+        &self,
+        _recycler: &PacketBatchRecycler,
+        _from_addr: &SocketAddr,
+        _slot: Slot,
+        _shred_index: u64,
+        _block_id: Hash,
+        _nonce: Nonce,
+    ) -> Option<PacketBatch> {
+        // TODO: Implement block ID-specific window request logic
+        None
+    }
+
+    fn run_highest_window_request_for_block_id(
+        &self,
+        _recycler: &PacketBatchRecycler,
+        _from_addr: &SocketAddr,
+        _slot: Slot,
+        _highest_index: u64,
+        _block_id: Hash,
+        _nonce: Nonce,
+    ) -> Option<PacketBatch> {
+        // TODO: Implement block ID-specific highest window request logic
+        None
     }
 
     fn run_orphan(

@@ -18,7 +18,7 @@ use {
     solana_perf::packet::{Packet, PacketBatch, PacketBatchRecycler},
     solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
-    solana_sdk::clock::Slot,
+    solana_sdk::{clock::Slot, hash::Hash},
     std::{
         collections::HashSet,
         net::SocketAddr,
@@ -33,6 +33,7 @@ pub trait RepairHandler {
         &self,
         slot: Slot,
         shred_index: u64,
+        block_id: Option<Hash>,
         dest: &SocketAddr,
         nonce: Nonce,
     ) -> Option<Packet>;
@@ -46,7 +47,7 @@ pub trait RepairHandler {
         nonce: Nonce,
     ) -> Option<PacketBatch> {
         // Try to find the requested index in one of the slots
-        let packet = self.repair_response_packet(slot, shred_index, from_addr, nonce)?;
+        let packet = self.repair_response_packet(slot, shred_index, None, from_addr, nonce)?;
         Some(PacketBatch::new_unpinned_with_recycler_data(
             recycler,
             "run_window_request",
@@ -66,7 +67,57 @@ pub trait RepairHandler {
         let meta = self.blockstore().meta(slot).ok()??;
         if meta.received > highest_index {
             // meta.received must be at least 1 by this point
-            let packet = self.repair_response_packet(slot, meta.received - 1, from_addr, nonce)?;
+            let packet =
+                self.repair_response_packet(slot, meta.received - 1, None, from_addr, nonce)?;
+            return Some(PacketBatch::new_unpinned_with_recycler_data(
+                recycler,
+                "run_highest_window_request",
+                vec![packet],
+            ));
+        }
+        None
+    }
+
+    fn run_window_request_for_block_id(
+        &self,
+        recycler: &PacketBatchRecycler,
+        from_addr: &SocketAddr,
+        slot: Slot,
+        shred_index: u64,
+        block_id: Hash,
+        nonce: Nonce,
+    ) -> Option<PacketBatch> {
+        let packet =
+            self.repair_response_packet(slot, shred_index, Some(block_id), from_addr, nonce)?;
+        Some(PacketBatch::new_unpinned_with_recycler_data(
+            recycler,
+            "run_window_request",
+            vec![packet],
+        ))
+    }
+
+    fn run_highest_window_request_for_block_id(
+        &self,
+        recycler: &PacketBatchRecycler,
+        from_addr: &SocketAddr,
+        slot: Slot,
+        highest_index: u64,
+        block_id: Hash,
+        nonce: Nonce,
+    ) -> Option<PacketBatch> {
+        let meta = self
+            .blockstore()
+            .meta_for_block_id(slot, block_id)
+            .expect("Unable to fetch meta for block id from blockstore")?;
+        if meta.received > highest_index {
+            // meta.received must be at least 1 by this point
+            let packet = self.repair_response_packet(
+                slot,
+                meta.received - 1,
+                Some(block_id),
+                from_addr,
+                nonce,
+            )?;
             return Some(PacketBatch::new_unpinned_with_recycler_data(
                 recycler,
                 "run_highest_window_request",
