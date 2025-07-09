@@ -257,6 +257,9 @@ pub struct Blockstore {
     blocktime_cf: LedgerColumn<cf::Blocktime>,
     code_shred_cf: LedgerColumn<cf::ShredCode>,
     data_shred_cf: LedgerColumn<cf::ShredData>,
+    repaired_code_shred_cf: LedgerColumn<cf::RepairedShredCode>,
+    repaired_data_shred_cf: LedgerColumn<cf::RepairedShredData>,
+    block_versions_cf: LedgerColumn<cf::BlockVersions>,
     dead_slots_cf: LedgerColumn<cf::DeadSlots>,
     duplicate_slots_cf: LedgerColumn<cf::DuplicateSlots>,
     erasure_meta_cf: LedgerColumn<cf::ErasureMeta>,
@@ -407,6 +410,9 @@ impl Blockstore {
         let blocktime_cf = db.column();
         let code_shred_cf = db.column();
         let data_shred_cf = db.column();
+        let repaired_code_shred_cf = db.column();
+        let repaired_data_shred_cf = db.column();
+        let block_versions_cf = db.column();
         let dead_slots_cf = db.column();
         let duplicate_slots_cf = db.column();
         let erasure_meta_cf = db.column();
@@ -443,6 +449,9 @@ impl Blockstore {
             blocktime_cf,
             code_shred_cf,
             data_shred_cf,
+            repaired_code_shred_cf,
+            repaired_data_shred_cf,
+            block_versions_cf,
             dead_slots_cf,
             duplicate_slots_cf,
             erasure_meta_cf,
@@ -554,6 +563,15 @@ impl Blockstore {
     /// Returns the SlotMeta of the specified slot.
     pub fn meta(&self, slot: Slot) -> Result<Option<SlotMeta>> {
         self.meta_cf.get(slot)
+    }
+
+    /// Returns the BlockVersions of the specified slot.
+    pub fn block_versions(&self, slot: Slot) -> Result<Option<BlockVersions>> {
+        self.block_versions_cf.get(slot)
+    }
+
+    pub fn set_block_versions(&self, slot: Slot, block_versions: &BlockVersions) -> Result<()> {
+        self.block_versions_cf.put(slot, block_versions)
     }
 
     /// Returns true if the specified slot is full.
@@ -867,6 +885,9 @@ impl Blockstore {
         self.index_cf.submit_rocksdb_cf_metrics();
         self.data_shred_cf.submit_rocksdb_cf_metrics();
         self.code_shred_cf.submit_rocksdb_cf_metrics();
+        self.repaired_data_shred_cf.submit_rocksdb_cf_metrics();
+        self.repaired_code_shred_cf.submit_rocksdb_cf_metrics();
+        self.block_versions_cf.submit_rocksdb_cf_metrics();
         self.transaction_status_cf.submit_rocksdb_cf_metrics();
         self.address_signatures_cf.submit_rocksdb_cf_metrics();
         self.transaction_memos_cf.submit_rocksdb_cf_metrics();
@@ -2387,6 +2408,71 @@ impl Blockstore {
             .expect("blockstore couldn't fetch iterator")
             .map(|(_, bytes)| Shred::new_from_serialized_shred(Vec::from(bytes)))
             .collect()
+    }
+
+    /// Get the slot meta for the specified `block_id` in the slot
+    pub fn meta_for_block_id(&self, slot: Slot, block_id: Hash) -> Result<Option<SlotMeta>> {
+        let Some(block_versions) = self.block_versions(slot)? else {
+            return Ok(None);
+        };
+        match block_versions.get_location(block_id) {
+            Some((BlockLocation::Turbine, None)) => self.meta(slot),
+            Some((BlockLocation::Repair { block_id: bid }, Some(meta))) => {
+                assert!(bid == block_id);
+                Ok(Some(meta))
+            }
+            Some(loc) => panic!("Programmer error, invalid block location: {loc:?}"),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_data_shred_from_location(
+        &self,
+        slot: Slot,
+        index: u64,
+        location: BlockLocation,
+    ) -> Result<Option<Vec<u8>>> {
+        match location {
+            BlockLocation::Turbine => self.get_data_shred(slot, index),
+            BlockLocation::Repair { block_id } => self
+                .repaired_data_shred_cf
+                .get_bytes((slot, index, block_id)),
+        }
+    }
+
+    pub fn get_coding_shred_from_location(
+        &self,
+        slot: Slot,
+        index: u64,
+        location: BlockLocation,
+    ) -> Result<Option<Vec<u8>>> {
+        match location {
+            BlockLocation::Turbine => self.get_coding_shred(slot, index),
+            BlockLocation::Repair { block_id } => self
+                .repaired_code_shred_cf
+                .get_bytes((slot, index, block_id)),
+        }
+    }
+
+    /// Check both the data shred column and the repaired data shred column for
+    /// a consistent block `block_id`, and return the data shred at index `index`.
+    ///
+    /// Note: If the full block for `block_id` has not been ingested by turbine or repair,
+    /// we will return `None`. Not intended to be used for blocks in progress of being ingested.
+    pub fn get_data_shred_by_block_id(
+        &self,
+        slot: Slot,
+        index: u64,
+        block_id: Hash,
+    ) -> Result<Option<Vec<u8>>> {
+        let Some(block_versions) = self.block_versions(slot)? else {
+            return Ok(None);
+        };
+        let Some((location, _meta)) = block_versions.get_location(block_id) else {
+            return Ok(None);
+        };
+
+        self.get_data_shred_from_location(slot, index, location)
     }
 
     // Only used by tests
@@ -5299,6 +5385,27 @@ pub fn test_all_empty_or_min(blockstore: &Blockstore, min_slot: Slot) {
             .unwrap()
             .next()
             .map(|((slot, _), _)| slot >= min_slot)
+            .unwrap_or(true)
+        & blockstore
+            .repaired_data_shred_cf
+            .iter(IteratorMode::Start)
+            .unwrap()
+            .next()
+            .map(|((slot, _, _), _)| slot >= min_slot)
+            .unwrap_or(true)
+        & blockstore
+            .repaired_code_shred_cf
+            .iter(IteratorMode::Start)
+            .unwrap()
+            .next()
+            .map(|((slot, _, _), _)| slot >= min_slot)
+            .unwrap_or(true)
+        & blockstore
+            .block_versions_cf
+            .iter(IteratorMode::Start)
+            .unwrap()
+            .next()
+            .map(|(slot, _)| slot >= min_slot)
             .unwrap_or(true)
         & blockstore
             .dead_slots_cf

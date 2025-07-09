@@ -8,6 +8,7 @@ use {
     serde::{de::DeserializeOwned, Serialize},
     solana_sdk::{
         clock::{Slot, UnixTimestamp},
+        hash::Hash,
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
     },
@@ -132,6 +133,36 @@ pub mod columns {
     /// * index type: `(u64, u64)`
     /// * value type: [`Vec<u8>`]
     pub struct ShredCode;
+
+    #[derive(Debug)]
+    /// The repaired shred data column
+    /// Shreds are only inserted in this column if they've been fetched by
+    /// block_id repair. Eager repair populates the turbine `ShredData` column.
+    /// Similar to the `ShredData` column, except we additionally key by block_id
+    ///
+    /// * index type: `(u64, u64, Hash)`
+    /// * value type: [`Vec<u8>`]
+    pub struct RepairedShredData;
+
+    #[derive(Debug)]
+    /// The repaired shred erasure code column
+    /// Shreds are only inserted in this column if they've been fetched by
+    /// block_id repair. Eager repair populates the turbine `ShredCode` column.
+    /// Similar to the `ShredCode` column, except we additionally key by block_id
+    ///
+    /// * index type: `(u64, u64, Hash)`
+    /// * value type: [`Vec<u8>`]
+    pub struct RepairedShredCode;
+
+    #[derive(Debug)]
+    /// The block verisons
+    ///
+    /// This column stores information about what versions of blocks in `slot` we
+    /// have available, for use in serving repair or switching replayed banks
+    ///
+    /// * index type: `u64` (see [`SlotColumn`])
+    /// * value type: [`blockstore_meta::BlockVersions`]
+    pub struct BlockVersions;
 
     #[derive(Debug)]
     /// The transaction status column
@@ -673,6 +704,32 @@ impl ColumnName for columns::ShredCode {
     const NAME: &'static str = "code_shred";
 }
 
+impl Column for columns::RepairedShredCode {
+    type Index = (Slot, /*shred index:*/ u64, /*block id*/ Hash);
+    type Key = <columns::RepairedShredData as Column>::Key;
+
+    #[inline]
+    fn key(index: &Self::Index) -> Self::Key {
+        // RepairedShredCode and RepairedShredData have the same key format
+        <columns::RepairedShredData as Column>::key(index)
+    }
+
+    fn index(key: &[u8]) -> Self::Index {
+        columns::RepairedShredData::index(key)
+    }
+
+    fn slot(index: Self::Index) -> Slot {
+        index.0
+    }
+
+    fn as_index(slot: Slot) -> Self::Index {
+        (slot, 0, Hash::default())
+    }
+}
+impl ColumnName for columns::RepairedShredCode {
+    const NAME: &'static str = "repaired_code_shred";
+}
+
 impl Column for columns::ShredData {
     type Index = (Slot, /*shred index:*/ u64);
     type Key = [u8; std::mem::size_of::<Slot>() + std::mem::size_of::<u64>()];
@@ -702,6 +759,49 @@ impl Column for columns::ShredData {
 }
 impl ColumnName for columns::ShredData {
     const NAME: &'static str = "data_shred";
+}
+
+impl Column for columns::RepairedShredData {
+    type Index = (Slot, /*shred index:*/ u64, /* block id*/ Hash);
+    type Key = [u8; std::mem::size_of::<Slot>()
+        + std::mem::size_of::<u64>()
+        + std::mem::size_of::<Hash>()];
+
+    #[inline]
+    fn key((slot, index, hash): &Self::Index) -> Self::Key {
+        convert_column_index_to_key_bytes!(Key,
+            ..8 => &slot.to_be_bytes(),
+            8..16 => &index.to_be_bytes(),
+            16.. => &hash.to_bytes(),
+        )
+    }
+
+    fn index(key: &[u8]) -> Self::Index {
+        convert_column_key_bytes_to_index!(key,
+            0..8  => Slot::from_be_bytes,
+            8..16 => u64::from_be_bytes,  // shred index
+            16..48 => Hash::new_from_array,
+        )
+    }
+
+    fn slot(index: Self::Index) -> Slot {
+        index.0
+    }
+
+    fn as_index(slot: Slot) -> Self::Index {
+        (slot, 0, Hash::default())
+    }
+}
+impl ColumnName for columns::RepairedShredData {
+    const NAME: &'static str = "repaired_data_shred";
+}
+
+impl SlotColumn for columns::BlockVersions {}
+impl ColumnName for columns::BlockVersions {
+    const NAME: &'static str = "block_versions";
+}
+impl TypedColumn for columns::BlockVersions {
+    type Type = blockstore_meta::BlockVersions;
 }
 
 impl SlotColumn for columns::Index {}

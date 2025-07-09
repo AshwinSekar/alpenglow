@@ -231,6 +231,62 @@ pub struct DuplicateSlotProof {
     pub shred2: shred::Payload,
 }
 
+#[derive(Deserialize, Serialize)]
+pub enum BlockStatus {
+    /// The block is being ingested, of the shreds received there are no conflicts
+    Incomplete,
+
+    /// The block `block_id` has been fully ingested, has consistent shreds and is ready for replay
+    Consistent { block_id: Hash },
+
+    // The following variants indicate that block has conflicting shreds,
+    // preventing us from recovering and replaying the block
+    /// We have shreds with inconsistent merkle roots in `fec_set_index`
+    InconsistentMerkleRoot { fec_set_index: u32 },
+
+    /// The merkle root of `fec_set_index` does not match the chained merkle root of `fec_set_index_next`
+    InconsistentChainedMerkleRoot {
+        fec_set_index: u32,
+        fec_set_index_next: u32,
+    },
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BlockVersions {
+    pub turbine_version: BlockStatus,
+    pub repaired_versions: [(Hash, SlotMeta, BlockStatus); 3],
+}
+
+/// Which column an associated block currently resides
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BlockLocation {
+    Turbine,
+    Repair { block_id: Hash },
+}
+
+impl BlockVersions {
+    pub(crate) fn get_location(self, block_id: Hash) -> Option<(BlockLocation, Option<SlotMeta>)> {
+        match self.turbine_version {
+            BlockStatus::Consistent { block_id: bid } if bid == block_id => {
+                return Some((BlockLocation::Turbine, None))
+            }
+            _ => (),
+        };
+
+        self.repaired_versions.into_iter().find_map(
+            |(bid, meta, block_status)| match block_status {
+                BlockStatus::Consistent {
+                    block_id: status_bid,
+                } if status_bid == block_id => {
+                    assert!(bid == status_bid);
+                    Some((BlockLocation::Repair { block_id }, Some(meta)))
+                }
+                _ => None,
+            },
+        )
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub enum FrozenHashVersioned {
     Current(FrozenHashStatus),

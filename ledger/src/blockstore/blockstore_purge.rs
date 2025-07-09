@@ -273,6 +273,18 @@ impl Blockstore {
                 .delete_range_in_batch(write_batch, from_slot, to_slot)
                 .is_ok()
             & self
+                .repaired_data_shred_cf
+                .delete_range_in_batch(write_batch, from_slot, to_slot)
+                .is_ok()
+            & self
+                .repaired_code_shred_cf
+                .delete_range_in_batch(write_batch, from_slot, to_slot)
+                .is_ok()
+            & self
+                .block_versions_cf
+                .delete_range_in_batch(write_batch, from_slot, to_slot)
+                .is_ok()
+            & self
                 .dead_slots_cf
                 .delete_range_in_batch(write_batch, from_slot, to_slot)
                 .is_ok()
@@ -354,6 +366,18 @@ impl Blockstore {
                 .is_ok()
             & self
                 .code_shred_cf
+                .delete_file_in_range(from_slot, to_slot)
+                .is_ok()
+            & self
+                .repaired_data_shred_cf
+                .delete_file_in_range(from_slot, to_slot)
+                .is_ok()
+            & self
+                .repaired_code_shred_cf
+                .delete_file_in_range(from_slot, to_slot)
+                .is_ok()
+            & self
+                .block_versions_cf
                 .delete_file_in_range(from_slot, to_slot)
                 .is_ok()
             & self

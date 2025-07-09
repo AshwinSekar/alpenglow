@@ -177,6 +177,9 @@ impl Rocks {
             new_cf_descriptor::<columns::Index>(options, oldest_slot),
             new_cf_descriptor::<columns::ShredData>(options, oldest_slot),
             new_cf_descriptor::<columns::ShredCode>(options, oldest_slot),
+            new_cf_descriptor::<columns::RepairedShredData>(options, oldest_slot),
+            new_cf_descriptor::<columns::RepairedShredCode>(options, oldest_slot),
+            new_cf_descriptor::<columns::BlockVersions>(options, oldest_slot),
             new_cf_descriptor::<columns::TransactionStatus>(options, oldest_slot),
             new_cf_descriptor::<columns::AddressSignatures>(options, oldest_slot),
             new_cf_descriptor::<columns::TransactionMemos>(options, oldest_slot),
@@ -237,7 +240,7 @@ impl Rocks {
         cf_descriptors
     }
 
-    const fn columns() -> [&'static str; 22] {
+    const fn columns() -> [&'static str; 25] {
         [
             columns::ErasureMeta::NAME,
             columns::DeadSlots::NAME,
@@ -249,6 +252,9 @@ impl Rocks {
             columns::SlotMeta::NAME,
             columns::ShredData::NAME,
             columns::ShredCode::NAME,
+            columns::RepairedShredData::NAME,
+            columns::RepairedShredCode::NAME,
+            columns::BlockVersions::NAME,
             columns::TransactionStatus::NAME,
             columns::AddressSignatures::NAME,
             columns::TransactionMemos::NAME,
