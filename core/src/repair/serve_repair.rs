@@ -29,7 +29,10 @@ use {
         ping_pong::{self, Pong},
         weighted_shuffle::WeightedShuffle,
     },
-    solana_ledger::shred::{self, Nonce, ShredFetchStats, SIZE_OF_NONCE},
+    solana_ledger::{
+        blockstore_meta::BlockLocation,
+        shred::{self, Nonce, ShredFetchStats, SIZE_OF_NONCE},
+    },
     solana_perf::{
         data_budget::DataBudget,
         packet::{Packet, PacketBatch, PacketBatchRecycler},
@@ -115,6 +118,18 @@ impl ShredRepairType {
             | ShredRepairType::Shred(slot, _)
             | ShredRepairType::HighestShredForBlockId(slot, _, _)
             | ShredRepairType::ShredForBlockId(slot, _, _) => *slot,
+        }
+    }
+
+    pub fn location_to_insert_response(&self) -> BlockLocation {
+        match self {
+            ShredRepairType::HighestShredForBlockId(_, _, bid)
+            | ShredRepairType::ShredForBlockId(_, _, bid) => {
+                BlockLocation::Repair { block_id: *bid }
+            }
+            ShredRepairType::Orphan(_)
+            | ShredRepairType::HighestShred(_, _)
+            | ShredRepairType::Shred(_, _) => BlockLocation::Turbine,
         }
     }
 }

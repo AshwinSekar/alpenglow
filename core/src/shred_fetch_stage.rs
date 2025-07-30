@@ -20,6 +20,7 @@ use {
         signature::Keypair,
     },
     solana_streamer::streamer::{self, PacketBatchReceiver, StreamerReceiveStats},
+    solana_turbine::block_location_lookup::BlockLocationLookup,
     std::{
         net::{SocketAddr, UdpSocket},
         sync::{
@@ -47,6 +48,7 @@ struct RepairContext {
     repair_socket: Arc<UdpSocket>,
     cluster_info: Arc<ClusterInfo>,
     outstanding_repair_requests: Arc<RwLock<OutstandingShredRepairs>>,
+    block_location_lookup: Arc<BlockLocationLookup>,
 }
 
 impl ShredFetchStage {
@@ -126,7 +128,12 @@ impl ShredFetchStage {
                         // Have to set repair flag here so that the nonce is
                         // taken off the shred's payload.
                         packet.meta_mut().flags |= PacketFlags::REPAIR;
-                        if !verify_repair_nonce(packet, now, &mut outstanding_repair_requests) {
+                        if !verify_repair_nonce_and_populate_lookup(
+                            packet,
+                            now,
+                            &mut outstanding_repair_requests,
+                            &repair_context.block_location_lookup,
+                        ) {
                             packet.meta_mut().set_discard(true);
                         }
                     });
@@ -230,6 +237,7 @@ impl ShredFetchStage {
         bank_forks: Arc<RwLock<BankForks>>,
         cluster_info: Arc<ClusterInfo>,
         outstanding_repair_requests: Arc<RwLock<OutstandingShredRepairs>>,
+        block_location_lookup: Arc<BlockLocationLookup>,
         turbine_disabled: Arc<AtomicBool>,
         exit: Arc<AtomicBool>,
     ) -> Self {
@@ -238,6 +246,7 @@ impl ShredFetchStage {
             repair_socket: repair_socket.clone(),
             cluster_info,
             outstanding_repair_requests,
+            block_location_lookup,
         };
 
         let (mut tvu_threads, tvu_filter) = Self::packet_modifier(
@@ -363,19 +372,30 @@ impl RepairContext {
 }
 
 // Returns false if repair nonce is invalid and packet should be discarded.
+// If valid fetch the expected location where the shred should be inserted.
+// If the location is not the default turbine column, populate the location lookup.
 #[must_use]
-fn verify_repair_nonce(
-    packet: &Packet,
+fn verify_repair_nonce_and_populate_lookup(
+    packet: &mut Packet,
     now: u64, // solana_sdk::timing::timestamp()
     outstanding_repair_requests: &mut OutstandingShredRepairs,
+    block_location_lookup: &BlockLocationLookup,
 ) -> bool {
     debug_assert!(packet.meta().flags.contains(PacketFlags::REPAIR));
     let Some((shred, Some(nonce))) = shred::layout::get_shred_and_repair_nonce(packet) else {
         return false;
     };
-    outstanding_repair_requests
-        .register_response(nonce, shred, now, |_| ())
-        .is_some()
+    let Some(location) =
+        outstanding_repair_requests.register_response(nonce, shred, now, |response| {
+            response.location_to_insert_response()
+        })
+    else {
+        // If there is no location, we assume the default Turbine column for eager repair. No need
+        // to populate the location lookup here, as we default to the Turbine column
+        return true;
+    };
+    block_location_lookup.add_location(nonce, location);
+    true
 }
 
 pub(crate) fn receive_quic_datagrams(
