@@ -10,6 +10,7 @@ use {
             repair_service::{
                 OutstandingShredRepairs, RepairInfo, RepairService, RepairServiceChannels,
             },
+            shred_resolver_service::ShredResolverService,
         },
         result::{Error, Result},
     },
@@ -19,9 +20,10 @@ use {
     solana_feature_set as feature_set,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
-        blockstore::{Blockstore, BlockstoreInsertionMetrics, PossibleDuplicateShred},
+        blockstore::{Blockstore, BlockstoreInsertionMetrics, PossibleDuplicateShred, MAX_DATA_SHREDS_PER_SLOT},
         leader_schedule_cache::LeaderScheduleCache,
         shred::{self, ReedSolomonCache, Shred},
+        shred_event::ShredEventSender,
     },
     solana_measure::measure::Measure,
     solana_metrics::inc_new_counter_error,
@@ -204,6 +206,7 @@ fn run_insert<F>(
     ws_metrics: &mut WindowServiceMetrics,
     completed_data_sets_sender: Option<&CompletedDataSetsSender>,
     retransmit_sender: &Sender<Vec<shred::Payload>>,
+    shred_event_sender: &ShredEventSender,
     reed_solomon_cache: &ReedSolomonCache,
     accept_repairs_only: bool,
 ) -> Result<()>
@@ -250,6 +253,7 @@ where
         false, // is_trusted
         retransmit_sender,
         &handle_duplicate,
+        shred_event_sender,
         reed_solomon_cache,
         metrics,
     )?;
@@ -304,6 +308,7 @@ pub(crate) struct WindowService {
     t_check_duplicate: JoinHandle<()>,
     repair_service: RepairService,
     certificate_service: CertificateService,
+    shred_resolver_service: ShredResolverService,
 }
 
 impl WindowService {
@@ -346,6 +351,13 @@ impl WindowService {
         let certificate_service =
             CertificateService::new(exit.clone(), blockstore.clone(), certificate_receiver);
 
+        let (shred_event_sender, shred_event_receiver) = bounded(MAX_DATA_SHREDS_PER_SLOT);
+        let shred_resolver_service = ShredResolverService::new(
+            blockstore.clone(),
+            shred_event_receiver,
+            outstanding_repair_requests.clone(),
+        );
+
         let (duplicate_sender, duplicate_receiver) = unbounded();
 
         let t_check_duplicate = Self::start_check_duplicate_thread(
@@ -365,6 +377,7 @@ impl WindowService {
             duplicate_sender,
             completed_data_sets_sender,
             retransmit_sender,
+            shred_event_sender,
             accept_repairs_only,
         );
 
@@ -373,6 +386,7 @@ impl WindowService {
             t_check_duplicate,
             repair_service,
             certificate_service,
+            shred_resolver_service,
         }
     }
 
@@ -421,6 +435,7 @@ impl WindowService {
         check_duplicate_sender: Sender<PossibleDuplicateShred>,
         completed_data_sets_sender: Option<CompletedDataSetsSender>,
         retransmit_sender: Sender<Vec<shred::Payload>>,
+        shred_event_sender: ShredEventSender,
         accept_repairs_only: bool,
     ) -> JoinHandle<()> {
         let handle_error = || {
@@ -456,6 +471,7 @@ impl WindowService {
                         &mut ws_metrics,
                         completed_data_sets_sender.as_ref(),
                         &retransmit_sender,
+                        &shred_event_sender,
                         &reed_solomon_cache,
                         accept_repairs_only,
                     ) {
@@ -497,7 +513,8 @@ impl WindowService {
         self.t_insert.join()?;
         self.t_check_duplicate.join()?;
         self.repair_service.join()?;
-        self.certificate_service.join()
+        self.certificate_service.join()?;
+        self.shred_resolver_service.join()
     }
 }
 
@@ -657,6 +674,7 @@ mod test {
             let shreds = [&original_shred, &duplicate_shred]
                 .into_iter()
                 .map(|shred| (Cow::Borrowed(shred), /*is_repaired:*/ false));
+            let (dummy_shred_event_sender, _) = unbounded();
             blockstore
                 .insert_shreds_handle_duplicate(
                     shreds,
@@ -664,6 +682,7 @@ mod test {
                     false, // is_trusted
                     &dummy_retransmit_sender,
                     &handle_duplicate,
+                    &dummy_shred_event_sender,
                     &ReedSolomonCache::default(),
                     &mut BlockstoreInsertionMetrics::default(),
                 )

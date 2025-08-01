@@ -19,6 +19,7 @@ use {
             self, max_ticks_per_n_shreds, ErasureSetId, ProcessShredsStats, ReedSolomonCache,
             Shred, ShredData, ShredId, ShredType, Shredder, DATA_SHREDS_PER_FEC_BLOCK,
         },
+        shred_event::{ShredEvent, ShredEventSender},
         slot_stats::{ShredSource, SlotsStats},
         transaction_address_lookup_table_scanner::scan_transaction,
     },
@@ -221,6 +222,7 @@ impl LastFECSetCheckResults {
 pub struct InsertResults {
     completed_data_set_infos: Vec<CompletedDataSetInfo>,
     duplicate_shreds: Vec<PossibleDuplicateShred>,
+    shred_events: Vec<ShredEvent>,
 }
 
 /// A "complete data set" is a range of [`Shred`]s that combined in sequence carry a single
@@ -333,6 +335,8 @@ struct ShredInsertionTracker<'a> {
     index_meta_time_us: u64,
     // Collection of recently completed data sets (data portion of erasure batch)
     newly_completed_data_sets: Vec<CompletedDataSetInfo>,
+    // Collection of shred events to be sent to the shred resolver service
+    shred_events: Vec<ShredEvent>,
 }
 
 impl ShredInsertionTracker<'_> {
@@ -347,6 +351,7 @@ impl ShredInsertionTracker<'_> {
             write_batch,
             index_meta_time_us: 0,
             newly_completed_data_sets: vec![],
+            shred_events: vec![],
         }
     }
 }
@@ -1338,6 +1343,7 @@ impl Blockstore {
         Ok(InsertResults {
             completed_data_set_infos: shred_insertion_tracker.newly_completed_data_sets,
             duplicate_shreds: shred_insertion_tracker.duplicate_shreds,
+            shred_events: shred_insertion_tracker.shred_events,
         })
     }
 
@@ -1354,6 +1360,7 @@ impl Blockstore {
         is_trusted: bool,
         retransmit_sender: &Sender<Vec<shred::Payload>>,
         handle_duplicate: &F,
+        shred_event_sender: &ShredEventSender,
         reed_solomon_cache: &ReedSolomonCache,
         metrics: &mut BlockstoreInsertionMetrics,
     ) -> Result<Vec<CompletedDataSetInfo>>
@@ -1363,6 +1370,7 @@ impl Blockstore {
         let InsertResults {
             completed_data_set_infos,
             duplicate_shreds,
+            shred_events,
         } = self.do_insert_shreds(
             shreds,
             leader_schedule,
@@ -1373,6 +1381,11 @@ impl Blockstore {
 
         for shred in duplicate_shreds {
             handle_duplicate(shred);
+        }
+
+        for event in shred_events {
+            // TODO: handle error
+            let _ = shred_event_sender.send(event);
         }
 
         Ok(completed_data_set_infos)
@@ -1705,6 +1718,7 @@ impl Blockstore {
             erasure_metas,
             write_batch,
             newly_completed_data_sets,
+            ..
         } = shred_insertion_tracker;
 
         let index_meta_working_set_entry =
