@@ -31,6 +31,7 @@ impl ClientConnection for UdpClientConnection {
     }
 
     fn send_data_async(&self, data: Arc<Vec<u8>>) -> TransportResult<()> {
+        println!("#ASH: Sending via UDP");
         self.socket.send_to(data.as_ref(), self.addr)?;
         Ok(())
     }

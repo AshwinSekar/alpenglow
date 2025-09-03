@@ -60,6 +60,7 @@ fn send_message(
 ) -> Result<(), TransportError> {
     let client = connection_cache.get_connection(socket);
 
+    info!("#ASH: Sending AG message to {socket:?}");
     client.send_data_async(Arc::new(buf))
 }
 
