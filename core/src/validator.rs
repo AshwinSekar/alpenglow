@@ -626,7 +626,7 @@ impl Validator {
     ) -> Result<Self> {
         let ValidatorTpuConfig {
             use_quic,
-            vote_use_quic,
+            vote_use_quic: _,
             tpu_connection_pool_size,
             tpu_enable_udp,
             tpu_quic_server_config,
@@ -1138,7 +1138,7 @@ impl Validator {
             (true, _) => None,
         };
 
-        let vote_connection_cache = if vote_use_quic {
+        let vote_connection_cache = {
             let vote_connection_cache = ConnectionCache::new_with_client_options(
                 "connection_cache_vote_quic",
                 tpu_connection_pool_size,
@@ -1155,11 +1155,6 @@ impl Validator {
                 Some((&staked_nodes, &identity_keypair.pubkey())),
             );
             Arc::new(vote_connection_cache)
-        } else {
-            Arc::new(ConnectionCache::with_udp(
-                "connection_cache_vote_udp",
-                tpu_connection_pool_size,
-            ))
         };
 
         // test-validator crate may start the validator in a tokio runtime
