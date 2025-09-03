@@ -264,6 +264,11 @@ pub fn execute(
         );
     }
     let vote_use_quic = value_t_or_exit!(matches, "vote_use_quic", bool);
+    warn!("#ASH: execute.rs vote_use_quic {vote_use_quic}");
+    warn!(
+        "#ASH: execute.rs matches.is_present('vote_use_quic') {}",
+        matches.is_present("vote_use_quic")
+    );
 
     let tpu_enable_udp = if matches.is_present("tpu_enable_udp") {
         warn!("Submission of TPU transactions via UDP is deprecated.");

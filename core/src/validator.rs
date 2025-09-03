@@ -626,7 +626,7 @@ impl Validator {
     ) -> Result<Self> {
         let ValidatorTpuConfig {
             use_quic,
-            vote_use_quic: _,
+            vote_use_quic,
             tpu_connection_pool_size,
             tpu_enable_udp,
             tpu_quic_server_config,
@@ -634,6 +634,7 @@ impl Validator {
             vote_quic_server_config,
             alpenglow_quic_server_config,
         } = tpu_config;
+        warn!("#ASH: validator.rs vote_use_quic {vote_use_quic}");
 
         let start_time = Instant::now();
 

@@ -161,7 +161,6 @@ impl ClientConnection for QuicClientConnection {
     }
 
     fn send_data_async(&self, data: Arc<Vec<u8>>) -> TransportResult<()> {
-        info!("#ASH: sending via quic");
         let _lock = ASYNC_TASK_SEMAPHORE.acquire();
         let inner = self.inner.clone();
 
