@@ -160,11 +160,11 @@ impl FetchStage {
         tpu_sockets: Vec<Arc<UdpSocket>>,
         tpu_forwards_sockets: Vec<Arc<UdpSocket>>,
         tpu_vote_sockets: Vec<Arc<UdpSocket>>,
-        alpenglow_socket: UdpSocket,
+        _alpenglow_socket: UdpSocket,
         exit: Arc<AtomicBool>,
         sender: &PacketBatchSender,
         vote_sender: &PacketBatchSender,
-        bls_packet_sender: &PacketBatchSender,
+        _bls_packet_sender: &PacketBatchSender,
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
         poh_recorder: &Arc<RwLock<PohRecorder>>,
@@ -243,19 +243,19 @@ impl FetchStage {
             })
             .collect();
 
-        let bls_message_stats = Arc::new(StreamerReceiveStats::new("bls_message_receiver"));
-        let bls_message_threads: Vec<_> = vec![streamer::receiver(
-            "solRcvrAlpMsg".to_string(),
-            Arc::new(alpenglow_socket),
-            exit.clone(),
-            bls_packet_sender.clone(),
-            recycler.clone(),
-            bls_message_stats.clone(),
-            coalesce,
-            true,
-            None,
-            true, // only staked connections can send BLS messages
-        )];
+        // let bls_message_stats = Arc::new(StreamerReceiveStats::new("bls_message_receiver"));
+        // let bls_message_threads: Vec<_> = vec![streamer::receiver(
+        //     "solRcvrAlpMsg".to_string(),
+        //     Arc::new(alpenglow_socket),
+        //     exit.clone(),
+        //     bls_packet_sender.clone(),
+        //     recycler.clone(),
+        //     bls_message_stats.clone(),
+        //     coalesce,
+        //     true,
+        //     None,
+        //     true, // only staked connections can send BLS messages
+        // )];
 
         let sender = sender.clone();
         let poh_recorder = poh_recorder.clone();
@@ -285,7 +285,7 @@ impl FetchStage {
                 tpu_stats.report();
                 tpu_vote_stats.report();
                 tpu_forward_stats.report();
-                bls_message_stats.report();
+                // bls_message_stats.report();
 
                 if exit.load(Ordering::Relaxed) {
                     return;
@@ -298,7 +298,7 @@ impl FetchStage {
                 tpu_threads,
                 tpu_forwards_threads,
                 tpu_vote_threads,
-                bls_message_threads,
+                // bls_message_threads,
                 vec![fwd_thread_hdl, metrics_thread_hdl],
             ]
             .into_iter()
