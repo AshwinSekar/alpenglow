@@ -1304,6 +1304,7 @@ impl ReplayStage {
                         &dumped_slots_sender,
                         &my_pubkey,
                         &leader_schedule_cache,
+                        migration_status.as_ref(),
                     );
                     dump_then_repair_correct_slots_time.stop();
 
@@ -1488,6 +1489,7 @@ impl ReplayStage {
                 root_bank.as_ref(),
                 bank_forks,
                 blockstore,
+                migration_status,
             );
         }
 
@@ -1773,6 +1775,7 @@ impl ReplayStage {
         dumped_slots_sender: &DumpedSlotsSender,
         my_pubkey: &Pubkey,
         leader_schedule_cache: &LeaderScheduleCache,
+        migration_status: &MigrationStatus,
     ) {
         if duplicate_slots_to_repair.is_empty() {
             return;
@@ -1879,6 +1882,7 @@ impl ReplayStage {
                         &root_bank,
                         bank_forks,
                         blockstore,
+                        migration_status,
                     );
 
                     dumped.push((*duplicate_slot, *correct_hash));
@@ -1977,8 +1981,11 @@ impl ReplayStage {
         root_bank: &Bank,
         bank_forks: &RwLock<BankForks>,
         blockstore: &Blockstore,
+        migration_status: &MigrationStatus,
     ) {
         warn!("purging slot {duplicate_slot}");
+        assert!(!migration_status.is_alpenglow_enabled());
+        let eligble_genesis_slot = migration_status.eligble_genesis_block().map(|gb| gb.slot());
 
         // Doesn't need to be root bank, just needs a common bank to
         // access the status cache and accounts
@@ -2024,6 +2031,13 @@ impl ReplayStage {
         drop(removed_banks);
 
         for (slot, slot_id) in slots_to_purge {
+            if Some(slot) == eligble_genesis_slot {
+                // We are dumping the eligble genesis slot, this should never happen
+                panic!(
+                    "We are dumping the bank in {slot} that we casted our Genesis Vote for. \
+                     Something is extremely wrong"
+                )
+            }
             // Clear the slot signatures from status cache for this slot.
             // TODO: What about RPC queries that had already cloned the Bank for this slot
             // and are looking up the signature for this slot?
@@ -2445,14 +2459,15 @@ impl ReplayStage {
 
         let migration_slot = migration_status.migration_slot().unwrap_or(u64::MAX);
         let root_distance = my_leader_slot - root_slot;
-        let vote_only_bank =
-            if root_distance > MAX_ROOT_DISTANCE_FOR_VOTE_ONLY || my_leader_slot >= migration_slot {
-                info!("{my_pubkey}: Creating block in slot {my_leader_slot} in VoM");
-                datapoint_info!("vote-only-bank", ("slot", my_leader_slot, i64));
-                true
-            } else {
-                false
-            };
+        let vote_only_bank = if root_distance > MAX_ROOT_DISTANCE_FOR_VOTE_ONLY
+            || my_leader_slot >= migration_slot
+        {
+            info!("{my_pubkey}: Creating block in slot {my_leader_slot} in VoM");
+            datapoint_info!("vote-only-bank", ("slot", my_leader_slot, i64));
+            true
+        } else {
+            false
+        };
 
         let tpu_bank = Self::new_bank_from_parent_with_notify(
             parent_bank.clone(),
@@ -6724,6 +6739,8 @@ pub(crate) mod tests {
             .set_dead_slot(7)
             .expect("Failed to mark slot as dead in blockstore");
 
+        let migration_status = MigrationStatus::default();
+
         // Purging slot 5 should purge only slots 5 and its descendant 6. Since 7 is already dead,
         // it gets reset but not removed
         ReplayStage::purge_unconfirmed_duplicate_slot(
@@ -6734,6 +6751,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &migration_status,
         );
         for i in 5..=7 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6774,6 +6792,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &migration_status,
         );
         for i in 4..=6 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6797,6 +6816,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &migration_status,
         );
         for i in 1..=6 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6855,6 +6875,8 @@ pub(crate) mod tests {
             .set_dead_slot(6)
             .expect("Failed to mark slot 6 as dead in blockstore");
 
+        let migration_status = MigrationStatus::default();
+
         // Purge slot 3 as it is duplicate, this should also purge slot 5 but not touch 6 and 7
         ReplayStage::purge_unconfirmed_duplicate_slot(
             3,
@@ -6864,6 +6886,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &migration_status,
         );
         for slot in &[3, 5, 6, 7] {
             assert!(bank_forks.read().unwrap().get(*slot).is_none());
@@ -7551,6 +7574,8 @@ pub(crate) mod tests {
             .map(|(&s, &h)| (s, h))
             .collect_vec();
 
+        let migration_status = MigrationStatus::default();
+
         ReplayStage::dump_then_repair_correct_slots(
             &mut duplicate_slots_to_repair,
             &mut ancestors,
@@ -7563,6 +7588,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             &Pubkey::new_unique(),
             leader_schedule_cache,
+            &migration_status,
         );
         assert_eq!(should_be_dumped, dumped_slots_receiver.recv().ok().unwrap());
 
@@ -7682,6 +7708,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             &Pubkey::new_unique(),
             leader_schedule_cache,
+            &MigrationStatus::default(),
         );
 
         // Check everything was purged properly
@@ -9044,6 +9071,7 @@ pub(crate) mod tests {
         duplicate_slots_to_repair.insert(slot_to_dump, bank_to_dump_bad_hash);
         let mut purge_repair_slot_counter = PurgeRepairSlotCounter::default();
         let (dumped_slots_sender, dumped_slots_receiver) = unbounded();
+        let migration_status = MigrationStatus::default();
 
         ReplayStage::dump_then_repair_correct_slots(
             &mut duplicate_slots_to_repair,
@@ -9057,6 +9085,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             my_pubkey,
             &leader_schedule_cache,
+            &migration_status,
         );
         assert_eq!(
             dumped_slots_receiver.recv_timeout(Duration::from_secs(1)),
@@ -9127,6 +9156,7 @@ pub(crate) mod tests {
         duplicate_slots_to_repair.insert(2, Hash::new_unique());
         let mut purge_repair_slot_counter = PurgeRepairSlotCounter::default();
         let (dumped_slots_sender, _) = unbounded();
+        let migration_status = MigrationStatus::default();
 
         ReplayStage::dump_then_repair_correct_slots(
             &mut duplicate_slots_to_repair,
@@ -9140,6 +9170,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             my_pubkey,
             leader_schedule_cache,
+            &migration_status,
         );
     }
 
