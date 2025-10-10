@@ -28,7 +28,7 @@ use {
 };
 
 pub static TEMP_HARDCODED_TARGET_VERSION: LazyLock<Mutex<VoteStateTargetVersion>> =
-    LazyLock::new(|| Mutex::new(VoteStateTargetVersion::V3));
+    LazyLock::new(|| Mutex::new(VoteStateTargetVersion::V4));
 
 // utility function, used by Stakes, tests
 pub fn from<T: ReadableAccount>(account: &T) -> Option<VoteStateV3> {
