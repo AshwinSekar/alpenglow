@@ -1522,6 +1522,20 @@ impl ReplayStage {
         migration_status.enable_alpenglow();
 
         assert!(migration_status.is_alpenglow_enabled());
+        datapoint_info!(
+            "migration-complete",
+            ("one", 1, i64),
+            (
+                "migration_slot",
+                migration_status.migration_slot().unwrap() as i64,
+                i64
+            ),
+            (
+                "genesis_slot",
+                migration_status.genesis_slot().unwrap() as i64,
+                i64
+            ),
+        );
         true
     }
 
@@ -2900,6 +2914,15 @@ impl ReplayStage {
                     .activated_slot(&agave_feature_set::alpenglow::id())
                 {
                     migration_status.notify_feature_flag(slot);
+                    datapoint_info!(
+                        "migration-started",
+                        ("one", 1, i64),
+                        (
+                            "migration_slot",
+                            migration_status.migration_slot().unwrap() as i64,
+                            i64
+                        ),
+                    );
                 }
             }
         }
