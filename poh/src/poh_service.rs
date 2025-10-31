@@ -111,6 +111,7 @@ impl PohService {
             .spawn(move || {
                 if migration_status.is_alpenglow_enabled() {
                     // We've started up post alpenglow migration. Don't bother starting PohService
+                    info!("Post Alpenglow migration, not starting PohService");
                     migration_status
                         .is_poh_shutdown
                         .store(true, Ordering::Release);

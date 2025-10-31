@@ -172,11 +172,11 @@ fn test_alpenglow_nodes_basic(num_nodes: usize, num_offline_nodes: usize) {
         ticks_per_slot: 8,
         slots_per_epoch: MINIMUM_SLOTS_PER_EPOCH * 2,
         stakers_slot_offset: MINIMUM_SLOTS_PER_EPOCH * 2,
-        poh_config: PohConfig {
-            target_tick_duration: PohConfig::default().target_tick_duration,
-            hashes_per_tick: Some(clock::DEFAULT_HASHES_PER_TICK),
-            target_tick_count: None,
-        },
+        // poh_config: PohConfig {
+        //     target_tick_duration: PohConfig::default().target_tick_duration,
+        //     hashes_per_tick: Some(clock::DEFAULT_HASHES_PER_TICK),
+        //     target_tick_count: None,
+        // },
         ..ClusterConfig::default()
     };
     let mut cluster = LocalCluster::new_alpenglow(&mut config, SocketAddrSpace::Unspecified);

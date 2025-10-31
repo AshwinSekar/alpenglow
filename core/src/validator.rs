@@ -1895,18 +1895,22 @@ impl Validator {
         drop(self.bank_forks);
         drop(self.cluster_info);
 
+        error!("Attempting to join PohService");
         self.poh_service.join().expect("poh_service");
         drop(self.poh_recorder);
 
-        if let Some(json_rpc_service) = self.json_rpc_service {
-            json_rpc_service.join().expect("rpc_service");
+        if let Some(_json_rpc_service) = self.json_rpc_service {
+            error!("Attempting to join json_rpc_service");
+            // json_rpc_service.join().expect("rpc_service");
         }
 
         if let Some(pubsub_service) = self.pubsub_service {
+            error!("Attempting to join pubsub");
             pubsub_service.join().expect("pubsub_service");
         }
 
         if let Some(rpc_completed_slots_service) = self.rpc_completed_slots_service {
+            error!("Attempting to join rpc_completed_slots_service");
             rpc_completed_slots_service
                 .join()
                 .expect("rpc_completed_slots_service");
@@ -1915,39 +1919,46 @@ impl Validator {
         if let Some(optimistically_confirmed_bank_tracker) =
             self.optimistically_confirmed_bank_tracker
         {
+            error!("Attempting to join optimisticall confirmed");
             optimistically_confirmed_bank_tracker
                 .join()
                 .expect("optimistically_confirmed_bank_tracker");
         }
 
         if let Some(transaction_status_service) = self.transaction_status_service {
+            error!("Attempting to join TSS");
             transaction_status_service
                 .join()
                 .expect("transaction_status_service");
         }
 
         if let Some(system_monitor_service) = self.system_monitor_service {
+            error!("Attempting to join SMS");
             system_monitor_service
                 .join()
                 .expect("system_monitor_service");
         }
 
         if let Some(sample_performance_service) = self.sample_performance_service {
+            error!("Attempting to join SPS");
             sample_performance_service
                 .join()
                 .expect("sample_performance_service");
         }
 
         if let Some(entry_notifier_service) = self.entry_notifier_service {
+            error!("Attempting to join ENS");
             entry_notifier_service
                 .join()
                 .expect("entry_notifier_service");
         }
 
         if let Some(s) = self.snapshot_packager_service {
+            error!("Attempting to join SNAPPS");
             s.join().expect("snapshot_packager_service");
         }
 
+        error!("Attempting to join gossip service");
         self.gossip_service.join().expect("gossip_service");
         self.repair_quic_endpoints
             .iter()
