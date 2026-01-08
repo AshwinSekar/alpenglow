@@ -210,9 +210,9 @@ impl RequestResponse for AncestorHashesRepairType {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 // TODO(ashwin): plug in the next PR
-pub(crate) enum BlockIdRepairType {
+pub enum BlockIdRepairType {
     #[allow(dead_code)]
     ParentAndFecSetCount { slot: Slot, block_id: Hash },
 
@@ -225,7 +225,7 @@ pub(crate) enum BlockIdRepairType {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum BlockIdRepairResponse {
+pub enum BlockIdRepairResponse {
     ParentFecSetCount {
         fec_set_count: usize,
         parent_info: (Slot, Hash),

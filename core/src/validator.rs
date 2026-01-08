@@ -1398,6 +1398,7 @@ impl Validator {
         let (repair_response_quic_sender, repair_response_quic_receiver) = unbounded();
         let (ancestor_hashes_response_quic_sender, ancestor_hashes_response_quic_receiver) =
             unbounded();
+        let (_block_id_repair_request_sender, block_id_repair_request_receiver) = unbounded();
 
         let waited_for_supermajority = wait_for_supermajority(
             config,
@@ -1648,6 +1649,7 @@ impl Validator {
                 fetch: node.sockets.tvu,
                 ancestor_hashes_requests: node.sockets.ancestor_hashes_requests,
                 alpenglow_quic: node.sockets.alpenglow,
+                block_id_repair: node.sockets.block_id_repair,
             },
             blockstore.clone(),
             ledger_signal_receiver,
@@ -1698,6 +1700,7 @@ impl Validator {
             repair_quic_async_senders.repair_request_quic_sender,
             repair_quic_async_senders.ancestor_hashes_request_quic_sender,
             ancestor_hashes_response_quic_receiver,
+            block_id_repair_request_receiver,
             outstanding_repair_requests.clone(),
             cluster_slots.clone(),
             wen_restart_repair_slots.clone(),
