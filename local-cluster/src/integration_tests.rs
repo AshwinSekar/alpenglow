@@ -72,7 +72,9 @@ pub const AG_DEBUG_LOG_FILTER: &str =
      solana_votor::vote_history_storage=info,solana_core::validator=info,\
      solana_votor::consensus_metrics=info,solana_core::consensus=info,\
      solana_ledger::blockstore_processor=info,solana_ledger::blockstore=info,\
-     solana_core::repair::block_id_repair_service=trace";
+     solana_core::repair::block_id_repair_service=trace,
+     solana_core::repair::repair_handler=info,
+     solana_core::repair::malicious_repair_handler=info";
 pub const DEFAULT_NODE_STAKE: u64 = 10 * LAMPORTS_PER_SOL;
 
 pub fn last_vote_in_tower(tower_path: &Path, node_pubkey: &Pubkey) -> Option<(Slot, Hash)> {

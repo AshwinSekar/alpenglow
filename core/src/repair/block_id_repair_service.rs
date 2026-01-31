@@ -45,7 +45,7 @@ use {
     solana_votor_messages::{consensus_message::Block, migration::MigrationStatus},
     std::{
         collections::{BinaryHeap, HashMap, HashSet},
-        io::{Cursor, Read},
+        io::{Cursor},
         net::{SocketAddr, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -354,6 +354,7 @@ impl BlockIdRepairService {
 
                     // Process responses (including pings), generate new requests / repair events
                     Self::process_responses(
+                        repair_info.cluster_info.id(),
                         &response_receiver,
                         &mut state,
                         &mut throttle,
@@ -403,6 +404,7 @@ impl BlockIdRepairService {
 
     /// Process any pending responses from the response receiver and generate any new requests
     fn process_responses(
+        my_pubkey: Pubkey,
         response_receiver: &PacketBatchReceiver,
         state: &mut RepairState,
         throttle: &mut DynamicPacketToProcessThreshold,
@@ -433,7 +435,7 @@ impl BlockIdRepairService {
             .iter()
             .flat_map(|packet_batch| packet_batch.iter())
             .for_each(|packet| {
-                Self::process_block_id_repair_response(packet, keypair, state);
+                Self::process_block_id_repair_response(&my_pubkey, packet, keypair, state);
             });
 
         // adjust throttle based on actual compute time
@@ -445,6 +447,7 @@ impl BlockIdRepairService {
     /// - Verify repair nonce
     /// - Queue more repair requests or events
     fn process_block_id_repair_response(
+        my_pubkey: &Pubkey,
         packet: PacketRef<'_>,
         keypair: &solana_keypair::Keypair,
         state: &mut RepairState,
@@ -455,7 +458,7 @@ impl BlockIdRepairService {
             return;
         };
 
-        debug!("Received response: {response:?}, nonce={nonce}");
+        debug!("{my_pubkey}: Received response: {response:?}, nonce={nonce}");
 
         let Some(request) =
             // verify the response (and check merkle proof validity)
@@ -468,13 +471,13 @@ impl BlockIdRepairService {
             )
         else {
             info!(
-                "Response with invalid nonce {nonce} or failed verification for {response:?}"
+                "{my_pubkey}: Response with invalid nonce {nonce} or failed verification for {response:?}"
             );
             state.response_stats.invalid_packets += 1;
             return;
         };
 
-        info!("Valid response for request {request:?}");
+        info!("{my_pubkey}: Valid response for request {request:?}");
 
         // Remove from sent_requests since we got a response
         state
@@ -493,7 +496,7 @@ impl BlockIdRepairService {
                     bincode::serialize(&pong_protocol).expect("Pong serialization cannot fail");
 
                 info!(
-                    "Received ping challenge from {addr}, queueing pong and retrying request \
+                    "{my_pubkey}: Received ping challenge from {addr}, queueing pong and retrying request \
                      {request:?}"
                 );
 
@@ -537,7 +540,7 @@ impl BlockIdRepairService {
             } => {
                 let BlockIdRepairType::FecSetRoot { fec_set_index, .. } = request else {
                     panic!(
-                        "Programmer error, *verified* response was FecSetRoot but request was not"
+                        "{my_pubkey}: Programmer error, *verified* response was FecSetRoot but request was not"
                     );
                 };
                 let start_index = fec_set_index;
@@ -563,7 +566,7 @@ impl BlockIdRepairService {
     }
 
     /// Deserialize a packet into a [`BlockIdRepairResponse`] along with the nonce
-    /// Returns `None` deserialization failed or there are trailing bits
+    /// Returns `None` deserialization failed
     fn deserialize_response_and_nonce(packet: PacketRef) -> Option<(BlockIdRepairResponse, u32)> {
         let packet_data = packet.data(..)?;
 
@@ -587,10 +590,6 @@ impl BlockIdRepairService {
             }
         };
 
-        if cursor.bytes().next().is_some() {
-            debug!("Response has trailing bytes, discarding");
-            return None;
-        }
         Some((response, nonce))
     }
 
@@ -1242,6 +1241,7 @@ mod tests {
         let packet = make_packet(&data);
 
         BlockIdRepairService::process_block_id_repair_response(
+            &Pubkey::new_unique(),
             (&packet).into(),
             &keypair,
             &mut state,
@@ -1315,6 +1315,7 @@ mod tests {
         let packet = make_packet(&data);
 
         BlockIdRepairService::process_block_id_repair_response(
+            &Pubkey::new_unique(),
             (&packet).into(),
             &keypair,
             &mut state,
@@ -1376,6 +1377,7 @@ mod tests {
         let packet = make_packet(&data);
 
         BlockIdRepairService::process_block_id_repair_response(
+            &Pubkey::new_unique(),
             (&packet).into(),
             &keypair,
             &mut state,
@@ -1407,6 +1409,7 @@ mod tests {
 
         BlockIdRepairService::process_repair_event(
             Pubkey::new_unique(),
+            event,
             &sharable_banks,
             &blockstore,
             &mut state,
@@ -1445,7 +1448,7 @@ mod tests {
         let event = RepairEvent::FetchBlock { slot, block_id };
 
         BlockIdRepairService::process_repair_event(
-            Pubkey::new_unique,
+            Pubkey::new_unique(),
             event,
             &sharable_banks,
             &blockstore,
@@ -1491,7 +1494,7 @@ mod tests {
         };
 
         BlockIdRepairService::process_repair_event(
-            Pubkey::new_unique,
+            Pubkey::new_unique(),
             event,
             &sharable_banks,
             &blockstore,
@@ -1534,7 +1537,7 @@ mod tests {
         let event = RepairEvent::FetchBlock { slot, block_id };
 
         BlockIdRepairService::process_repair_event(
-            Pubkey::new_unique,
+            Pubkey::new_unique(),
             event,
             &sharable_banks,
             &blockstore,
@@ -1558,7 +1561,7 @@ mod tests {
         let event = RepairEvent::FetchBlock { slot, block_id };
 
         BlockIdRepairService::process_repair_event(
-            Pubkey::new_unique,
+            Pubkey::new_unique(),
             event,
             &sharable_banks,
             &blockstore,

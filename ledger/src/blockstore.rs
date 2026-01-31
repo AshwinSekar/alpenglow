@@ -2448,9 +2448,12 @@ impl Blockstore {
                     // progress. We cannot determine if we have the version that will eventually
                     // be complete, so we take the conservative approach and mark the slot as dead
                     // so that replay can dump and repair the correct version.
-                    self.dead_slots_cf
-                        .put_in_batch(write_batch, slot, &true)
-                        .unwrap();
+                    if self.dead_slots_cf.get(slot).unwrap().is_none_or(|dead| !dead) {
+                        warn!("Merkle root consistency failed for {slot}, marking as dead");
+                        self.dead_slots_cf
+                            .put_in_batch(write_batch, slot, &true)
+                            .unwrap();
+                    }
                     return Err(InsertDataShredError::InvalidShred);
                 }
             }
@@ -2714,7 +2717,8 @@ impl Blockstore {
             return true;
         }
 
-        warn!(
+        // TODO(ashwin): put back to warn!
+        trace!(
             "Received conflicting merkle roots for slot: {}, erasure_set: {:?} original merkle \
              root meta {:?} vs conflicting merkle root {:?} shred index {} type {:?}. Reporting \
              as duplicate",

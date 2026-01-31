@@ -6247,6 +6247,7 @@ fn test_alpenglow_basic_equivocation() {
     let vote_listener_addr = solana_net_utils::bind_to_localhost().unwrap();
 
     let mut a_validator_config = ValidatorConfig::default_for_test();
+    a_validator_config.wait_for_supermajority = Some(0);
     a_validator_config.fixed_leader_schedule = Some(leader_schedule);
     a_validator_config.voting_service_test_override = Some(VotingServiceOverride {
         additional_listeners: vec![vote_listener_addr.local_addr().unwrap()],
@@ -6258,9 +6259,10 @@ fn test_alpenglow_basic_equivocation() {
         .turbine_disabled
         .store(true, Ordering::Release);
 
-    // Equivocate every other slot
+    // Equivocate every other slot, one shred per FEC set
     a_validator_config.repair_handler_type = RepairHandlerType::Malicious(MaliciousRepairConfig {
         bad_shred_slot_frequency: Some(2),
+        bad_shred_index_frequency: Some(32), // Only equivocate for indices where index % 32 == 0
     });
 
     // Cluster config
@@ -6284,16 +6286,6 @@ fn test_alpenglow_basic_equivocation() {
 
     // Create local cluster
     let cluster = LocalCluster::new_alpenglow(&mut cluster_config, SocketAddrSpace::Unspecified);
-
-    // Ensure all nodes are voting
-    // cluster.check_for_new_notarized_votes(
-    //     16,
-    //     "test_alpenglow_basic_equivocation",
-    //     SocketAddrSpace::Unspecified,
-    //     vote_listener_addr,
-    //     &validator_keys,
-    //     &node_stakes,
-    // );
 
     // Ensure all nodes are rooting
     cluster.check_for_new_roots(
