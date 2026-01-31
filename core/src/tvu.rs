@@ -367,7 +367,7 @@ impl Tvu {
         };
 
         // Create switch block event channel for ReplayStage
-        let (switch_block_sender, switch_block_receiver) = bounded(100);
+        let (switch_bank_sender, switch_bank_receiver) = bounded(100);
 
         let window_service = {
             let repair_service_channels = RepairServiceChannels::new(
@@ -439,7 +439,7 @@ impl Tvu {
             own_vote_sender: consensus_message_sender,
             optimistic_parent_sender,
             repair_event_sender: repair_event_sender.clone(),
-            switch_block_sender: switch_block_sender.clone(),
+            switch_bank_sender: switch_bank_sender.clone(),
         };
 
         let replay_receivers = ReplayReceivers {
@@ -452,7 +452,7 @@ impl Tvu {
             popular_pruned_forks_receiver,
             consensus_message_receiver,
             votor_event_receiver,
-            switch_block_receiver,
+            switch_bank_receiver,
         };
 
         let replay_stage_config = ReplayStageConfig {

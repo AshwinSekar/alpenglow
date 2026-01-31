@@ -751,8 +751,8 @@ impl ServeRepair {
                         .migration_status
                         .should_use_double_merkle_block_id(*slot);
                     info!(
-                        "Received ParentAndFecSetCount request: slot={slot}, block_id={block_id:?}, \
-                         should_respond={should_respond}"
+                        "Received ParentAndFecSetCount request: slot={slot}, \
+                         block_id={block_id:?}, should_respond={should_respond}"
                     );
                     let response = if should_respond {
                         let response = self.repair_handler.run_parent_fec_set_count(
@@ -761,18 +761,20 @@ impl ServeRepair {
                         if response.is_none() {
                             stats.parent_misses += 1;
                             info!(
-                                "ParentAndFecSetCount: no response for slot={slot}, block_id={block_id:?} \
-                                 (block not found)"
+                                "ParentAndFecSetCount: no response for slot={slot}, \
+                                 block_id={block_id:?} (block not found)"
                             );
                         } else {
                             info!(
-                                "ParentAndFecSetCount: sending response for slot={slot}, block_id={block_id:?}"
+                                "ParentAndFecSetCount: sending response for slot={slot}, \
+                                 block_id={block_id:?}"
                             );
                         }
                         response
                     } else {
                         info!(
-                            "ParentAndFecSetCount: migration_status says not alpenglow for slot={slot}"
+                            "ParentAndFecSetCount: migration_status says not alpenglow for \
+                             slot={slot}"
                         );
                         None
                     };

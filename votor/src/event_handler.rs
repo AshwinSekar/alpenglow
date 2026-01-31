@@ -5,7 +5,7 @@ use {
     crate::{
         commitment::{update_commitment_cache, CommitmentType},
         consensus_metrics::ConsensusMetricsEvent,
-        event::{CompletedBlock, RepairEvent, SwitchBlockEvent, VotorEvent, VotorEventReceiver},
+        event::{CompletedBlock, RepairEvent, SwitchBankEvent, VotorEvent, VotorEventReceiver},
         event_handler::stats::EventHandlerStats,
         root_utils::{self, RootContext},
         timer_manager::TimerManager,
@@ -308,26 +308,13 @@ impl EventHandler {
                 info!("{my_pubkey}: Block Notarized {block:?}");
                 vctx.vote_history.add_block_notarized(block);
                 Self::try_final(my_pubkey, block, vctx, &mut votes)?;
-                let _ = ctx.repair_event_sender.send(RepairEvent::FetchBlock {
-                    slot: block.0,
-                    block_id: block.1,
-                });
-                let _ = ctx.switch_block_sender.send(SwitchBlockEvent::Canonical {
-                    slot: block.0,
-                    block_id: block.1,
-                });
             }
 
-            VotorEvent::BlockNotarizeFallback(block) => {
-                info!("{my_pubkey}: Block Notarize Fallback {block:?}");
-                let _ = ctx.repair_event_sender.send(RepairEvent::FetchBlock {
-                    slot: block.0,
-                    block_id: block.1,
-                });
-                let _ = ctx.switch_block_sender.send(SwitchBlockEvent::Canonical {
-                    slot: block.0,
-                    block_id: block.1,
-                });
+            VotorEvent::BlockNotarizeFallback(block @ (slot, block_id)) => {
+                info!("{my_pubkey}: Block Notarize-Fallback {block:?}");
+                let _ = ctx
+                    .repair_event_sender
+                    .send(RepairEvent::FetchBlock { slot, block_id });
             }
 
             VotorEvent::FirstShred(slot) => {
@@ -336,7 +323,10 @@ impl EventHandler {
             }
 
             // Received a parent ready notification for `slot`
-            VotorEvent::ParentReady { slot, parent_block } => {
+            VotorEvent::ParentReady {
+                slot,
+                parent_block: parent_block @ (parent_slot, parent_block_id),
+            } => {
                 vctx.consensus_metrics_sender
                     .send((
                         Instant::now(),
@@ -352,6 +342,10 @@ impl EventHandler {
                     timer_manager,
                     &mut votes,
                 )?;
+                let _ = ctx.switch_bank_sender.send(SwitchBankEvent::Switch {
+                    slot: parent_slot,
+                    block_id: parent_block_id,
+                });
             }
 
             VotorEvent::TimeoutCrashedLeader(slot) => {
@@ -449,14 +443,6 @@ impl EventHandler {
                         &mut votes,
                     )?;
                 }
-                let _ = ctx.repair_event_sender.send(RepairEvent::FetchBlock {
-                    slot: block.0,
-                    block_id: block.1,
-                });
-                let _ = ctx.switch_block_sender.send(SwitchBlockEvent::Canonical {
-                    slot: block.0,
-                    block_id: block.1,
-                });
             }
 
             // We have not observed a finalization certificate in a while, refresh our votes
@@ -893,7 +879,7 @@ mod tests {
         let (consensus_metrics_sender, consensus_metrics_receiver) = unbounded();
         let (leader_window_info_sender, leader_window_info_receiver) = unbounded();
         let (repair_event_sender, _) = unbounded();
-        let (switch_block_sender, _) = unbounded();
+        let (switch_bank_sender, _) = unbounded();
         let timer_manager = Arc::new(PlRwLock::new(TimerManager::new(
             event_sender.clone(),
             exit.clone(),
@@ -944,7 +930,7 @@ mod tests {
             rpc_subscriptions: None,
             highest_parent_ready: highest_parent_ready.clone(),
             repair_event_sender,
-            switch_block_sender,
+            switch_bank_sender,
         };
 
         let vote_history = VoteHistory::new(my_node_keypair.pubkey(), 0);

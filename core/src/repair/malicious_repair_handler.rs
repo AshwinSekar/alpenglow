@@ -4,7 +4,10 @@ use {
     solana_hash::Hash,
     solana_ledger::{
         blockstore::Blockstore,
-        shred::{Nonce, SIZE_OF_DATA_SHRED_HEADERS},
+        shred::{
+            merkle_tree::{PROOF_ENTRIES_FOR_32_32_BATCH, SIZE_OF_MERKLE_PROOF_ENTRY},
+            Nonce, SIZE_OF_DATA_SHRED_HEADERS,
+        },
     },
     solana_perf::packet::Packet,
     std::{net::SocketAddr, sync::Arc},
@@ -21,7 +24,10 @@ pub struct MaliciousRepairHandler {
 }
 
 impl MaliciousRepairHandler {
-    const BAD_DATA_INDEX: usize = SIZE_OF_DATA_SHRED_HEADERS + 5;
+    const BAD_DATA_INDEX: usize = SIZE_OF_DATA_SHRED_HEADERS
+        + 32
+        + PROOF_ENTRIES_FOR_32_32_BATCH as usize * SIZE_OF_MERKLE_PROOF_ENTRY
+        + 12;
 
     pub fn new(blockstore: Arc<Blockstore>, config: MaliciousRepairConfig) -> Self {
         Self { blockstore, config }
@@ -60,6 +66,8 @@ impl RepairHandler for MaliciousRepairHandler {
             // Change some random piece of data
             shred[Self::BAD_DATA_INDEX] = shred[Self::BAD_DATA_INDEX].wrapping_add(1);
         }
+
+        info!("Responding maliciously in slot {slot} index {shred_index} to {dest}");
         repair_response_packet_from_bytes(shred, dest, nonce)
     }
 }

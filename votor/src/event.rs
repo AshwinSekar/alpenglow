@@ -7,39 +7,6 @@ use {
     std::{sync::Arc, time::Instant},
 };
 
-pub type RepairEventSender = Sender<RepairEvent>;
-pub type RepairEventReceiver = Receiver<RepairEvent>;
-
-/// Events sent by votor to the block id repair service for informed repair
-#[derive(Debug, Copy, Clone)]
-pub enum RepairEvent {
-    /// We require that this block be fetched. This can happen for the following reasons:
-    /// - The block has received a NotarizeFallback certificate or stronger
-    /// - The specific SafetoNotar case requires parent information, we must repair at least the block header
-    /// - We received a block through turbine which specifies a parent that we do not currently have
-    FetchBlock { slot: Slot, block_id: Hash },
-}
-
-impl RepairEvent {
-    pub fn slot(&self) -> Slot {
-        match self {
-            RepairEvent::FetchBlock { slot, .. } => *slot,
-        }
-    }
-}
-
-pub type SwitchBlockEventSender = Sender<SwitchBlockEvent>;
-pub type SwitchBlockEventReceiver = Receiver<SwitchBlockEvent>;
-
-/// Events sent to replay_stage when a block becomes canonical or needs to be switched
-#[derive(Debug, Copy, Clone)]
-pub enum SwitchBlockEvent {
-    /// The block has become canonical (notarized or finalized)
-    Canonical { slot: Slot, block_id: Hash },
-    /// We need to switch to a different block version
-    Switch { slot: Slot, block_id: Hash },
-}
-
 #[derive(Debug, Clone)]
 pub struct CompletedBlock {
     pub slot: Slot,
@@ -127,6 +94,45 @@ impl VotorEvent {
             VotorEvent::ProduceWindow(_) => false,
             VotorEvent::Standstill(_) => false,
             VotorEvent::SetIdentity => false,
+        }
+    }
+}
+
+pub type RepairEventSender = Sender<RepairEvent>;
+pub type RepairEventReceiver = Receiver<RepairEvent>;
+
+/// Event sent by votor to the block id repair service for informed repair
+#[derive(Debug, Copy, Clone)]
+pub enum RepairEvent {
+    /// We require that this block be fetched. This can happen for the following reasons:
+    /// - The block has received a NotarizeFallback certificate or stronger
+    /// - TODO(ashwin): An intrawindow block has reached the SafeToNotar threshold, however we need
+    ///   to check that the parent has reached notarize-fallback requiring us to fetch this block
+    FetchBlock { slot: Slot, block_id: Hash },
+}
+
+impl RepairEvent {
+    pub fn slot(&self) -> Slot {
+        match self {
+            RepairEvent::FetchBlock { slot, .. } => *slot,
+        }
+    }
+}
+
+pub type SwitchBankEventSender = Sender<SwitchBankEvent>;
+pub type SwitchBankEventReceiver = Receiver<SwitchBankEvent>;
+
+/// Event sent to replay_stage when a bank needs to be switched as a result of a ParentReady
+#[derive(Debug, Copy, Clone)]
+pub enum SwitchBankEvent {
+    /// We need to switch any existing banks to this bank including ancestors
+    Switch { slot: Slot, block_id: Hash },
+}
+
+impl SwitchBankEvent {
+    pub fn block(&self) -> Block {
+        match self {
+            SwitchBankEvent::Switch { slot, block_id } => (*slot, *block_id),
         }
     }
 }

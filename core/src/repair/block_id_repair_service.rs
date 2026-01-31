@@ -34,6 +34,7 @@ use {
         packet::{deserialize_from_with_limit, PacketRef},
         recycler::Recycler,
     },
+    solana_pubkey::Pubkey,
     solana_runtime::bank_forks::SharableBanks,
     solana_streamer::{
         sendmmsg::{batch_send, SendPktsError},
@@ -373,7 +374,13 @@ impl BlockIdRepairService {
                     // Generate repair requests for repair events
                     let events_to_process = std::mem::take(&mut state.pending_repair_events);
                     for event in events_to_process {
-                        Self::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+                        Self::process_repair_event(
+                            repair_info.cluster_info.id(),
+                            event,
+                            &sharable_banks,
+                            &blockstore,
+                            &mut state,
+                        );
                     }
 
                     // Retry requests that have timed out
@@ -388,7 +395,7 @@ impl BlockIdRepairService {
                         &mut state,
                     );
 
-                    std::thread::sleep(Duration::from_millis(20));
+                    std::thread::sleep(Duration::from_millis(400));
                 }
             })
             .unwrap()
@@ -486,7 +493,8 @@ impl BlockIdRepairService {
                     bincode::serialize(&pong_protocol).expect("Pong serialization cannot fail");
 
                 info!(
-                    "Received ping challenge from {addr}, queueing pong and retrying request {request:?}"
+                    "Received ping challenge from {addr}, queueing pong and retrying request \
+                     {request:?}"
                 );
 
                 // Queue the pong (highest priority) w/ the original request
@@ -588,25 +596,30 @@ impl BlockIdRepairService {
 
     /// Process a repair event and generate any requests or do any blockstore column management
     fn process_repair_event(
+        my_pubkey: Pubkey,
         event: RepairEvent,
         sharable_banks: &SharableBanks,
         blockstore: &Blockstore,
         state: &mut RepairState,
     ) {
         let root = sharable_banks.root().slot();
-        debug!("process_repair_event: {event:?}, root={root}");
 
         if event.slot() <= root {
-            debug!("Ignoring event for slot {} <= root {}", event.slot(), root);
+            debug!(
+                "{my_pubkey}: Ignoring event for slot {} <= root {}",
+                event.slot(),
+                root
+            );
             return;
         }
 
         match event {
             RepairEvent::FetchBlock { slot, block_id } => {
-                debug!("FetchBlock event: slot={slot}, block_id={block_id:?}");
+                debug!("{my_pubkey} FetchBlock event: slot={slot}, block_id={block_id:?}");
                 if state.requested_blocks.contains(&(slot, block_id)) {
                     debug!(
-                        "FetchBlock: already requested slot={slot}, block_id={block_id:?}"
+                        "{my_pubkey} FetchBlock: already requested slot={slot}, \
+                         block_id={block_id:?}"
                     );
                     return;
                 }
@@ -614,7 +627,8 @@ impl BlockIdRepairService {
                 // Check if we already have the block
                 if let Some(location) = blockstore.get_block_location(slot, block_id) {
                     debug!(
-                        "FetchBlock: already have block at {location:?}, fetching parent"
+                        "{my_pubkey}: FetchBlock: already have block at {location:?}, fetching \
+                         parent"
                     );
                     Self::queue_fetch_parent_block(blockstore, slot, location, state);
                     return;
@@ -623,7 +637,8 @@ impl BlockIdRepairService {
                 // We don't have the block. Check Turbine status.
                 if blockstore.is_dead(slot) {
                     info!(
-                        "FetchBlock: slot {slot} is dead, starting repair for block_id={block_id:?}"
+                        "{my_pubkey}: FetchBlock: slot {slot} is dead, starting repair for \
+                         block_id={block_id:?}"
                     );
                     state.pending_repair_requests.push(RepairRequest::Metadata(
                         BlockIdRepairType::ParentAndFecSetCount { slot, block_id },
@@ -637,16 +652,19 @@ impl BlockIdRepairService {
                     blockstore.get_double_merkle_root(slot, BlockLocation::Original);
                 let slot_meta = blockstore.meta(slot).unwrap();
                 debug!(
-                    "FetchBlock: slot {} double_merkle_root={:?}, has_meta={:?}",
+                    "{my_pubkey}: FetchBlock: slot {} double_merkle_root={:?}, meta={:?}, \
+                     is_full={:?}",
                     slot,
                     double_merkle_root,
-                    slot_meta.is_some()
+                    slot_meta,
+                    slot_meta.as_ref().map(|meta| meta.is_full()),
                 );
                 match double_merkle_root {
                     None => {
                         // Turbine has started but not completed, defer and check again later
                         debug!(
-                            "FetchBlock: Turbine not complete for slot {slot}, deferring"
+                            "{my_pubkey}: FetchBlock: Turbine not complete for slot {slot}, \
+                             deferring"
                         );
                         debug_assert!(slot_meta.is_none_or(|s| !s.is_full()));
                         state
@@ -655,8 +673,9 @@ impl BlockIdRepairService {
                     }
                     Some(turbine_block_id) if turbine_block_id != block_id => {
                         info!(
-                            "FetchBlock: Turbine has different block {turbine_block_id:?} vs requested {block_id:?} for \
-                             slot {slot}, starting repair"
+                            "{my_pubkey}: FetchBlock: Turbine has different block \
+                             {turbine_block_id:?} vs requested {block_id:?} for slot {slot}, \
+                             starting repair"
                         );
                         state.pending_repair_requests.push(RepairRequest::Metadata(
                             BlockIdRepairType::ParentAndFecSetCount { slot, block_id },
@@ -665,7 +684,8 @@ impl BlockIdRepairService {
                     }
                     Some(_) => {
                         debug!(
-                            "FetchBlock: Turbine has correct block for slot {slot}, fetching parent"
+                            "{my_pubkey}: FetchBlock: Turbine has correct block for slot {slot}, \
+                             fetching parent"
                         );
                         Self::queue_fetch_parent_block(
                             blockstore,
@@ -767,9 +787,7 @@ impl BlockIdRepairService {
     ) {
         let pending_count = state.pending_repair_requests.len();
         if pending_count > 0 {
-            debug!(
-                "send_requests: {pending_count} pending requests, root={root}"
-            );
+            debug!("send_requests: {pending_count} pending requests, root={root}");
         }
 
         let max_batch_len = pending_count.min(MAX_REPAIR_REQUESTS_PER_ITERATION);
@@ -1387,7 +1405,12 @@ mod tests {
 
         let event = RepairEvent::FetchBlock { slot, block_id };
 
-        BlockIdRepairService::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+        BlockIdRepairService::process_repair_event(
+            Pubkey::new_unique(),
+            &sharable_banks,
+            &blockstore,
+            &mut state,
+        );
 
         // Verify: ParentAndFecSetCount request was added
         assert_eq!(state.pending_repair_requests.len(), 1);
@@ -1421,7 +1444,13 @@ mod tests {
         let block_id = Hash::new_unique();
         let event = RepairEvent::FetchBlock { slot, block_id };
 
-        BlockIdRepairService::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+        BlockIdRepairService::process_repair_event(
+            Pubkey::new_unique,
+            event,
+            &sharable_banks,
+            &blockstore,
+            &mut state,
+        );
 
         // Verify: No repair request was added (event was deferred)
         assert!(state.pending_repair_requests.is_empty());
@@ -1461,7 +1490,13 @@ mod tests {
             block_id: requested_block_id,
         };
 
-        BlockIdRepairService::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+        BlockIdRepairService::process_repair_event(
+            Pubkey::new_unique,
+            event,
+            &sharable_banks,
+            &blockstore,
+            &mut state,
+        );
 
         // Verify: ParentAndFecSetCount request was added for the requested block
         assert_eq!(state.pending_repair_requests.len(), 1);
@@ -1498,7 +1533,13 @@ mod tests {
 
         let event = RepairEvent::FetchBlock { slot, block_id };
 
-        BlockIdRepairService::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+        BlockIdRepairService::process_repair_event(
+            Pubkey::new_unique,
+            event,
+            &sharable_banks,
+            &blockstore,
+            &mut state,
+        );
 
         // Verify: No new request was added (block already requested)
         assert!(state.pending_repair_requests.is_empty());
@@ -1516,7 +1557,13 @@ mod tests {
         let block_id = Hash::new_unique();
         let event = RepairEvent::FetchBlock { slot, block_id };
 
-        BlockIdRepairService::process_repair_event(event, &sharable_banks, &blockstore, &mut state);
+        BlockIdRepairService::process_repair_event(
+            Pubkey::new_unique,
+            event,
+            &sharable_banks,
+            &blockstore,
+            &mut state,
+        );
 
         // Verify: No request was added (slot at root is ignored)
         assert!(state.pending_repair_requests.is_empty());
