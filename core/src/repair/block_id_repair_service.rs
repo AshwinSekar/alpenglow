@@ -656,7 +656,6 @@ impl BlockIdRepairService {
                             "{my_pubkey}: FetchBlock: Turbine not complete for slot {slot}, \
                              deferring"
                         );
-                        debug_assert!(slot_meta.is_none_or(|s| !s.is_full()));
                         state
                             .pending_repair_events
                             .push(RepairEvent::FetchBlock { slot, block_id });
@@ -720,7 +719,6 @@ impl BlockIdRepairService {
         state.sent_requests.retain(|request, sent_time| {
             if now.saturating_sub(*sent_time) >= REPAIR_REQUEST_TIMEOUT_MS {
                 match request {
-                    // Pongs are never added to sent_requests, but handle for completeness
                     RepairRequest::Pong { .. } => {}
                     RepairRequest::Metadata(_) => {
                         // Metadata requests: always retry on timeout

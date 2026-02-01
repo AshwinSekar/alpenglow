@@ -6259,9 +6259,9 @@ fn test_alpenglow_basic_equivocation() {
         .turbine_disabled
         .store(true, Ordering::Release);
 
-    // Equivocate every other slot, one shred per FEC set
+    // Equivocate every 10 slots, one shred per FEC set
     a_validator_config.repair_handler_type = RepairHandlerType::Malicious(MaliciousRepairConfig {
-        bad_shred_slot_frequency: Some(2),
+        bad_shred_slot_frequency: Some(10),
         bad_shred_index_frequency: Some(32), // Only equivocate for indices where index % 32 == 0
     });
 

@@ -106,7 +106,6 @@ use {
         vote::Vote,
     },
     std::{
-        borrow::Cow,
         collections::{HashMap, HashSet},
         num::{NonZeroUsize, Saturating},
         result,
@@ -2298,6 +2297,7 @@ impl ReplayStage {
 
                 if location != BlockLocation::Original {
                     // Need to switch this block
+                    info!("{my_pubkey}: Queueing {ancestor_slot} to be switched in from {location:?}");
                     blocks_to_switch.push((ancestor_slot, location));
                 }
 
@@ -2308,6 +2308,8 @@ impl ReplayStage {
 
                 if bank_forks.read().unwrap().block_id(parent_meta.parent_slot)
                     == Some(parent_meta.parent_block_id)
+                        // Genesis cannot be duplicate
+                        || parent_meta.parent_slot == 0
                 {
                     info!(
                         "{my_pubkey}: Ancestor in slot {} found in bank forks, time to switch",
@@ -2323,20 +2325,10 @@ impl ReplayStage {
             }
 
             // Switch the fork
-            // TODO(ashwin): shred lock
             for (slot, location) in blocks_to_switch.into_iter() {
-                info!("Switching {slot} from {location:?}");
-                // 1. Backup the block if necessary
-                if blockstore
-                    .meta(slot)
-                    .unwrap()
-                    .is_some_and(|meta| meta.is_full())
-                {
-                    // TODO: backup
-                }
+                info!("{my_pubkey}: Switching {slot} from {location:?}");
 
-                // 2. Purge the shreds in the turbine column and maybe bank and progress
-                blockstore.clear_unconfirmed_slot(slot);
+                // Clear bank and progress before switching blockstore data
                 {
                     let mut w_bank_forks = bank_forks.write().unwrap();
                     if w_bank_forks.get(slot).is_some() {
@@ -2345,28 +2337,9 @@ impl ReplayStage {
                 }
                 let _ = progress.remove(&slot);
 
-                // 3. Copy over shreds
-                assert!(blockstore
-                    .meta_from_location(slot, location)
-                    .unwrap()
-                    .expect("slot must have been full")
-                    .is_full());
-                let shreds = blockstore
-                    .get_data_shreds_for_slot_from_location(
-                        slot, /* start_index */ 0, location,
-                    )
-                    .unwrap();
-                assert!(!shreds.is_empty());
-                info!("Copying over {} shreds", shreds.len());
-                let shreds = shreds.into_iter().map(Cow::Owned);
-                blockstore
-                    .insert_cow_shreds(shreds, None, /* is_trusted */ true)
-                    .expect("blockstore insertion must succeed");
-                assert!(blockstore
-                    .meta(slot)
-                    .unwrap()
-                    .expect("slot must be full")
-                    .is_full());
+                // Switch the blockstore data atomically
+                blockstore.switch_block_from_alternate(slot, location);
+                info!("{my_pubkey}: Switched {slot} from {location:?}");
             }
 
             false
@@ -3953,7 +3926,7 @@ impl ReplayStage {
                 let r_replay_stats = replay_stats.read().unwrap();
                 let replay_progress = bank_progress.replay_progress.clone();
                 let r_replay_progress = replay_progress.read().unwrap();
-                debug!(
+                info!(
                     "bank {} has completed replay from blockstore, contribute to update cost with \
                      {:?}",
                     bank.slot(),
@@ -5099,8 +5072,10 @@ impl ReplayStage {
                         continue;
                     }
 
+                    // Genesis doesn't have a block id
                     if Some(parent_meta.parent_block_id) != parent_bank.block_id()
                         && parent_bank.collector_id() != my_pubkey
+                        && parent_slot != 0
                     {
                         // There were duplicate blocks in this slot and we have the wrong one replayed
                         continue;
