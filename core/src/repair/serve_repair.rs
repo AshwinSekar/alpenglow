@@ -446,14 +446,12 @@ pub enum RepairProtocol {
         slot: Slot,
     },
     // TODO(ashwin): plug this in next pr
-    #[allow(dead_code)]
     ParentAndFecSetCount {
         header: RepairRequestHeader,
         slot: Slot,
         block_id: Hash,
     },
     // TODO(ashwin): plug this in next pr
-    #[allow(dead_code)]
     FecSetRoot {
         header: RepairRequestHeader,
         slot: Slot,
@@ -1303,10 +1301,13 @@ impl ServeRepair {
                 RepairProtocol::WindowIndex { .. }
                 | RepairProtocol::HighestWindowIndex { .. }
                 | RepairProtocol::Orphan { .. }
-                | RepairProtocol::ParentAndFecSetCount { .. }
-                | RepairProtocol::FecSetRoot { .. }
                 | RepairProtocol::WindowIndexForBlockId { .. } => {
                     let ping = RepairResponse::Ping(ping);
+                    Packet::from_data(Some(from_addr), ping).ok()
+                }
+                RepairProtocol::ParentAndFecSetCount { .. }
+                | RepairProtocol::FecSetRoot { .. } => {
+                    let ping = BlockIdRepairResponse::Ping { ping };
                     Packet::from_data(Some(from_addr), ping).ok()
                 }
                 RepairProtocol::AncestorHashes { .. } => {
