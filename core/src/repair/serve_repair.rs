@@ -1305,8 +1305,7 @@ impl ServeRepair {
                     let ping = RepairResponse::Ping(ping);
                     Packet::from_data(Some(from_addr), ping).ok()
                 }
-                RepairProtocol::ParentAndFecSetCount { .. }
-                | RepairProtocol::FecSetRoot { .. } => {
+                RepairProtocol::ParentAndFecSetCount { .. } | RepairProtocol::FecSetRoot { .. } => {
                     let ping = BlockIdRepairResponse::Ping { ping };
                     Packet::from_data(Some(from_addr), ping).ok()
                 }

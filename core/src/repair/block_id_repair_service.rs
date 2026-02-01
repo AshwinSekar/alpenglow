@@ -23,7 +23,7 @@ use {
         },
     },
     crossbeam_channel::unbounded,
-    log::{debug, info, trace},
+    log::{debug, info},
     lru::LruCache,
     solana_clock::Slot,
     solana_gossip::ping_pong::Pong,
@@ -45,7 +45,7 @@ use {
     solana_votor_messages::{consensus_message::Block, migration::MigrationStatus},
     std::{
         collections::{BinaryHeap, HashMap, HashSet},
-        io::{Cursor},
+        io::Cursor,
         net::{SocketAddr, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -63,13 +63,12 @@ const MAX_REPAIR_REQUESTS_PER_ITERATION: usize = 200;
 /// The type of requests that this service will send
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum RepairRequest {
-    /// Pong response to a ping challenge
+    /// Pong response to a ping challenge.
     /// Contains serialized pong bytes and destination address.
+    /// The original request will be retried by retry_timed_out_requests.
     Pong {
         pong_bytes: Vec<u8>,
         addr: SocketAddr,
-        /// The original request that triggered the ping, to be re-sent after the pong
-        original_request: BlockIdRepairType,
     },
 
     /// Metadata requests
@@ -82,9 +81,9 @@ enum RepairRequest {
 impl RepairRequest {
     fn slot(&self) -> Slot {
         match self {
-            RepairRequest::Pong {
-                original_request, ..
-            } => original_request.block().0,
+            // Pong is always highest priority and handled separately in Ord,
+            // so this should never be called. Return 0 as a fallback.
+            RepairRequest::Pong { .. } => 0,
             RepairRequest::Metadata(block_id_repair_type) => block_id_repair_type.block().0,
             RepairRequest::Shred(shred_repair_type) => shred_repair_type.slot(),
         }
@@ -452,10 +451,46 @@ impl BlockIdRepairService {
         keypair: &solana_keypair::Keypair,
         state: &mut RepairState,
     ) {
-        let Some((response, nonce)) = Self::deserialize_response_and_nonce(packet) else {
-            trace!("Failed to deserialize response packet");
+        let Some(packet_data) = packet.data(..) else {
             state.response_stats.invalid_packets += 1;
             return;
+        };
+        let mut cursor = Cursor::new(packet_data);
+        let Ok(response) = deserialize_from_with_limit::<_, BlockIdRepairResponse>(&mut cursor)
+            .inspect_err(|e| {
+                debug!("Failed to deserialize response: {e:?}");
+            })
+        else {
+            state.response_stats.invalid_packets += 1;
+            return;
+        };
+
+        // Ping -> send pong
+        if let BlockIdRepairResponse::Ping { ping } = response {
+            let addr = packet.meta().socket_addr();
+            let pong = Pong::new(&ping, keypair);
+            let pong_protocol = RepairProtocol::Pong(pong);
+            let pong_bytes =
+                bincode::serialize(&pong_protocol).expect("Pong serialization cannot fail");
+
+            debug!("{my_pubkey}: Received ping challenge from {addr}, queueing pong");
+
+            state
+                .pending_repair_requests
+                .push(RepairRequest::Pong { pong_bytes, addr });
+
+            state.response_stats.ping_responses += 1;
+            return;
+        }
+
+        // For non-Ping responses, deserialize the nonce
+        let nonce: u32 = match deserialize_from_with_limit(&mut cursor) {
+            Ok(n) => n,
+            Err(e) => {
+                debug!("{my_pubkey}: Failed to deserialize nonce: {e:?}");
+                state.response_stats.invalid_packets += 1;
+                return;
+            }
         };
 
         debug!("{my_pubkey}: Received response: {response:?}, nonce={nonce}");
@@ -470,14 +505,14 @@ impl BlockIdRepairService {
                 |block_id_request| *block_id_request,
             )
         else {
-            info!(
+            debug!(
                 "{my_pubkey}: Response with invalid nonce {nonce} or failed verification for {response:?}"
             );
             state.response_stats.invalid_packets += 1;
             return;
         };
 
-        info!("{my_pubkey}: Valid response for request {request:?}");
+        debug!("{my_pubkey}: Received valid response for request {request:?}");
 
         // Remove from sent_requests since we got a response
         state
@@ -487,28 +522,6 @@ impl BlockIdRepairService {
         let (slot, block_id) = request.block();
 
         match response {
-            BlockIdRepairResponse::Ping { ping } => {
-                // Peer requires identity verification - queue a pong response and retry the request
-                let addr = packet.meta().socket_addr();
-                let pong = Pong::new(&ping, keypair);
-                let pong_protocol = RepairProtocol::Pong(pong);
-                let pong_bytes =
-                    bincode::serialize(&pong_protocol).expect("Pong serialization cannot fail");
-
-                info!(
-                    "{my_pubkey}: Received ping challenge from {addr}, queueing pong and retrying request \
-                     {request:?}"
-                );
-
-                // Queue the pong (highest priority) w/ the original request
-                state.pending_repair_requests.push(RepairRequest::Pong {
-                    pong_bytes,
-                    addr,
-                    original_request: request,
-                });
-
-                state.response_stats.ping_responses += 1;
-            }
             BlockIdRepairResponse::ParentFecSetCount {
                 fec_set_count,
                 parent_info: (p_slot, p_block_id),
@@ -534,13 +547,15 @@ impl BlockIdRepairService {
 
                 state.response_stats.parent_fec_set_count_responses += 1;
             }
+
             BlockIdRepairResponse::FecSetRoot {
                 fec_set_root: fec_set_merkle_root,
                 ..
             } => {
                 let BlockIdRepairType::FecSetRoot { fec_set_index, .. } = request else {
                     panic!(
-                        "{my_pubkey}: Programmer error, *verified* response was FecSetRoot but request was not"
+                        "{my_pubkey}: Programmer error, *verified* response was FecSetRoot but \
+                         request was not"
                     );
                 };
                 let start_index = fec_set_index;
@@ -560,37 +575,13 @@ impl BlockIdRepairService {
 
                 state.response_stats.fec_set_root_responses += 1;
             }
+
+            BlockIdRepairResponse::Ping { .. } => {
+                unreachable!("Ping handled above")
+            }
         }
 
         state.response_stats.processed += 1;
-    }
-
-    /// Deserialize a packet into a [`BlockIdRepairResponse`] along with the nonce
-    /// Returns `None` deserialization failed
-    fn deserialize_response_and_nonce(packet: PacketRef) -> Option<(BlockIdRepairResponse, u32)> {
-        let packet_data = packet.data(..)?;
-
-        let mut cursor = Cursor::new(packet_data);
-        let response: BlockIdRepairResponse = match deserialize_from_with_limit(&mut cursor) {
-            Ok(r) => r,
-            Err(e) => {
-                debug!(
-                    "Failed to deserialize response: {:?}, packet_size={}",
-                    e,
-                    packet_data.len()
-                );
-                return None;
-            }
-        };
-        let nonce: u32 = match deserialize_from_with_limit(&mut cursor) {
-            Ok(n) => n,
-            Err(e) => {
-                debug!("Failed to deserialize nonce: {e:?}");
-                return None;
-            }
-        };
-
-        Some((response, nonce))
     }
 
     /// Process a repair event and generate any requests or do any blockstore column management
@@ -813,30 +804,10 @@ impl BlockIdRepairService {
             }
 
             match request {
-                RepairRequest::Pong {
-                    pong_bytes,
-                    addr,
-                    original_request,
-                } => {
-                    // We send a request, receive a ping challenge, and then have to pong and resend the original request
+                RepairRequest::Pong { pong_bytes, addr } => {
+                    // Respond to ping challenge. The original request will be
+                    // retried by retry_timed_out_requests if needed.
                     block_id_socket_batch.push((pong_bytes, addr));
-
-                    let (retry_bytes, retry_addr) = state
-                        .serve_repair
-                        .block_id_repair_request(
-                            &repair_info.repair_validators,
-                            original_request,
-                            &mut state.peers_cache,
-                            &mut state.outstanding_requests,
-                            &repair_info.cluster_info.keypair(),
-                            &staked_nodes,
-                        )
-                        .expect("Request serialization cannot fail");
-
-                    block_id_socket_batch.push((retry_bytes, retry_addr));
-                    state
-                        .sent_requests
-                        .insert(RepairRequest::Metadata(original_request), now);
                 }
                 RepairRequest::Metadata(block_id_repair_type) => {
                     let (bytes, addr) = state
@@ -932,7 +903,7 @@ mod tests {
         solana_runtime::{bank::Bank, bank_forks::BankForks, genesis_utils::create_genesis_config},
         solana_sha256_hasher::hashv,
         solana_streamer::socket::SocketAddrSpace,
-        std::sync::RwLock,
+        std::{io::Cursor, sync::RwLock},
     };
 
     /// Helper to build a merkle tree from leaf hashes and return the root and proofs
@@ -1011,7 +982,6 @@ mod tests {
         let parent_slot = 99u64;
         let parent_block_id = Hash::new_unique();
         let parent_proof = vec![1u8; SIZE_OF_MERKLE_PROOF_ENTRY * 2];
-        let nonce = 12345u32;
 
         let response = BlockIdRepairResponse::ParentFecSetCount {
             fec_set_count,
@@ -1019,14 +989,12 @@ mod tests {
             parent_proof: parent_proof.clone(),
         };
 
-        let data = serialize_response(&response, nonce);
+        let data = bincode::serialize(&response).unwrap();
         let packet = make_packet(&data);
+        let packet_data = packet.data(..).unwrap();
 
-        let result = BlockIdRepairService::deserialize_response_and_nonce((&packet).into());
-        assert!(result.is_some());
-
-        let (deser_response, deser_nonce) = result.unwrap();
-        assert_eq!(deser_nonce, nonce);
+        let deser_response: BlockIdRepairResponse =
+            deserialize_from_with_limit(&mut Cursor::new(packet_data)).unwrap();
 
         match deser_response {
             BlockIdRepairResponse::ParentFecSetCount {
@@ -1047,21 +1015,18 @@ mod tests {
     fn test_deserialize_fec_set_root_response() {
         let fec_set_root = Hash::new_unique();
         let fec_set_proof = vec![2u8; SIZE_OF_MERKLE_PROOF_ENTRY * 3];
-        let nonce = 67890u32;
 
         let response = BlockIdRepairResponse::FecSetRoot {
             fec_set_root,
             fec_set_proof: fec_set_proof.clone(),
         };
 
-        let data = serialize_response(&response, nonce);
+        let data = bincode::serialize(&response).unwrap();
         let packet = make_packet(&data);
+        let packet_data = packet.data(..).unwrap();
 
-        let result = BlockIdRepairService::deserialize_response_and_nonce((&packet).into());
-        assert!(result.is_some());
-
-        let (deser_response, deser_nonce) = result.unwrap();
-        assert_eq!(deser_nonce, nonce);
+        let deser_response: BlockIdRepairResponse =
+            deserialize_from_with_limit(&mut Cursor::new(packet_data)).unwrap();
 
         match deser_response {
             BlockIdRepairResponse::FecSetRoot {
@@ -1076,33 +1041,22 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_invalid_packet() {
+    fn test_deserialize_invalid_response() {
         // Empty packet
         let packet = make_packet(&[]);
-        assert!(BlockIdRepairService::deserialize_response_and_nonce((&packet).into()).is_none());
+        let packet_data = packet.data(..).unwrap();
+        assert!(
+            deserialize_from_with_limit::<_, BlockIdRepairResponse>(&mut Cursor::new(packet_data))
+                .is_err()
+        );
 
         // Garbage data
         let packet = make_packet(&[0xff, 0xff, 0xff, 0xff]);
-        assert!(BlockIdRepairService::deserialize_response_and_nonce((&packet).into()).is_none());
-
-        // Truncated response (missing nonce)
-        let response = BlockIdRepairResponse::FecSetRoot {
-            fec_set_root: Hash::new_unique(),
-            fec_set_proof: vec![],
-        };
-        let mut data = bincode::options()
-            .with_fixint_encoding()
-            .serialize(&response)
-            .unwrap();
-        // Don't add nonce
-        let packet = make_packet(&data);
-        assert!(BlockIdRepairService::deserialize_response_and_nonce((&packet).into()).is_none());
-
-        // Extra trailing bytes should cause failure
-        data = serialize_response(&response, 123);
-        data.extend_from_slice(&[0xff, 0xff]); // Add trailing garbage
-        let packet = make_packet(&data);
-        assert!(BlockIdRepairService::deserialize_response_and_nonce((&packet).into()).is_none());
+        let packet_data = packet.data(..).unwrap();
+        assert!(
+            deserialize_from_with_limit::<_, BlockIdRepairResponse>(&mut Cursor::new(packet_data))
+                .is_err()
+        );
     }
 
     #[test]
