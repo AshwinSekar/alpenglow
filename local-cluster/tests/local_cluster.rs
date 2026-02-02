@@ -6224,7 +6224,7 @@ fn test_alpenglow_imbalanced_stakes_catchup() {
 /// However, through informed repair it is able to repair the correct blocks and keep up with A.
 #[test]
 #[serial]
-fn test_alpenglow_basic_equivocation() {
+fn test_alpenglow_equivocation_basic() {
     agave_logger::setup_with_default(AG_DEBUG_LOG_FILTER);
     // Create node stakes
     let slots_per_epoch = 512;
@@ -6259,10 +6259,11 @@ fn test_alpenglow_basic_equivocation() {
         .turbine_disabled
         .store(true, Ordering::Release);
 
-    // Equivocate every 10 slots, one shred per FEC set
+    // Equivocate every other slot, one shred per FEC set
     a_validator_config.repair_handler_type = RepairHandlerType::Malicious(MaliciousRepairConfig {
-        bad_shred_slot_frequency: Some(10),
-        bad_shred_index_frequency: Some(32), // Only equivocate for indices where index % 32 == 0
+        bad_shred_slot_frequency: Some(2),
+        bad_shred_index_frequency: Some(32),
+        per_requester_equivocation: false,
     });
 
     // Cluster config
@@ -6291,6 +6292,100 @@ fn test_alpenglow_basic_equivocation() {
     cluster.check_for_new_roots(
         32,
         "test_alpenglow_basic_equivocation",
+        SocketAddrSpace::Unspecified,
+    );
+}
+
+/// We start 3 nodes: A (20%), B (40%), C (40%).
+/// B and C have turbine disabled, so they rely on repair.
+/// A produces equivocating blocks where each requester gets a different consistent block.
+/// This means B and C will each receive valid blocks, but they'll be different.
+/// Through informed repair (using block_id), B and C should be able to converge
+/// to the same block that has votes from the other node.
+#[test]
+#[serial]
+fn test_alpenglow_equivocation_full_3_versions() {
+    agave_logger::setup_with_default(AG_DEBUG_LOG_FILTER);
+
+    let slots_per_epoch = 512;
+
+    // Create node stakes: A=20%, B=40%, C=40%
+    let total_stake = 5 * DEFAULT_NODE_STAKE;
+    let node_a_stake = total_stake / 5; // 20%
+    let node_b_stake = 2 * total_stake / 5; // 40%
+    let node_c_stake = total_stake - node_a_stake - node_b_stake; // 40%
+
+    let node_stakes = vec![node_a_stake, node_b_stake, node_c_stake];
+
+    // Create leader schedule with A as the only leader
+    let (leader_schedule, validator_keys) =
+        create_custom_leader_schedule_with_random_keys(&[4, 0, 0]);
+
+    let leader_schedule = FixedSchedule {
+        leader_schedule: Arc::new(leader_schedule),
+    };
+
+    // Create our UDP socket to listen to votes
+    let vote_listener_addr = solana_net_utils::bind_to_localhost().unwrap();
+
+    // Node A config - the malicious leader
+    let mut a_validator_config = ValidatorConfig::default_for_test();
+    a_validator_config.wait_for_supermajority = Some(0);
+    a_validator_config.fixed_leader_schedule = Some(leader_schedule);
+    a_validator_config.voting_service_test_override = Some(VotingServiceOverride {
+        additional_listeners: vec![vote_listener_addr.local_addr().unwrap()],
+        alpenglow_port_override: AlpenglowPortOverride::default(),
+    });
+
+    // Configure A to send different blocks to different requesters
+    a_validator_config.repair_handler_type = RepairHandlerType::Malicious(MaliciousRepairConfig {
+        bad_shred_slot_frequency: Some(10),
+        bad_shred_index_frequency: None,
+        per_requester_equivocation: true,
+    });
+
+    // Node B config - turbine disabled
+    let mut b_validator_config = safe_clone_config(&a_validator_config);
+    b_validator_config
+        .turbine_disabled
+        .store(true, Ordering::Release);
+    // B should not be malicious
+    b_validator_config.repair_handler_type = RepairHandlerType::Standard;
+
+    // Node C config - turbine disabled
+    let mut c_validator_config = safe_clone_config(&a_validator_config);
+    c_validator_config
+        .turbine_disabled
+        .store(true, Ordering::Release);
+    // C should not be malicious
+    c_validator_config.repair_handler_type = RepairHandlerType::Standard;
+
+    // Cluster config
+    let mut cluster_config = ClusterConfig {
+        mint_lamports: total_stake,
+        node_stakes: node_stakes.clone(),
+        validator_configs: vec![a_validator_config, b_validator_config, c_validator_config],
+        validator_keys: Some(
+            validator_keys
+                .iter()
+                .cloned()
+                .zip(iter::repeat_with(|| true))
+                .collect(),
+        ),
+        slots_per_epoch,
+        stakers_slot_offset: slots_per_epoch,
+        ticks_per_slot: DEFAULT_TICKS_PER_SLOT,
+        skip_warmup_slots: true,
+        ..ClusterConfig::default()
+    };
+
+    // Create local cluster
+    let cluster = LocalCluster::new_alpenglow(&mut cluster_config, SocketAddrSpace::Unspecified);
+
+    // Ensure all nodes are rooting - need more roots to verify B and C converge
+    cluster.check_for_new_roots(
+        32,
+        "test_alpenglow_targeted_equivocation",
         SocketAddrSpace::Unspecified,
     );
 }
